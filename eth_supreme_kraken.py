@@ -68,7 +68,7 @@ def place_order(side, quantity):
     if MODE != "REAL":
         return {"simulated": True, "side": side}
     data = {
-        "pair": "ETHUSD",
+        "pair": "XETHZUSD",
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
         "volume": quantity
