@@ -39,7 +39,19 @@ def handle_command():
             if chat_id != CHAT_ID:
                 continue
             if "/status" in text.lower():
-                send_message("✅ Bot funcionando correctamente. Monitoreando mercado ETH.")
+                from datetime import datetime
+                mem = load_memory()
+                trades = mem.get("trades", [])
+                summary = "📊 Resumen de operaciones del día:\n"
+                today = datetime.now().date()
+                total_profit = 0
+                for t in trades:
+                    t_time = datetime.fromisoformat(t["time"])
+                    if t_time.date() == today:
+                        summary += f"- {t['type']} {t['quantity']} ETH a ${t['price']:.2f} ({t_time.strftime('%H:%M')})\n"
+                if not trades or today not in [datetime.fromisoformat(t["time"]).date() for t in trades]:
+                    summary += "Sin operaciones hoy.\n"
+                send_message("✅ Bot funcionando correctamente. Monitoreando mercado ETH.\n" + summary)
             elif "/balance" in text.lower():
                 usdt, eth = get_balance()
                 send_message(f"💰 Balance actual:\n- USDT: ${usdt:.2f}\n- ETH: {eth:.5f}")
@@ -158,6 +170,54 @@ def main():
         memory["last_action"] = None
         save_memory(memory)
     send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
+    # --- Orden de compra inicial de test por $10 USD ---
+    try:
+        usdt, eth = get_balance()
+        price = get_price()
+        if price == 0:
+            send_message("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
+        elif usdt < 10:
+            send_message(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
+        else:
+            quantity = round(10 / price, 6)
+            res = place_order("BUY", quantity)
+            if "error" in res and res["error"]:
+                send_message(f"⚠️ Error al ejecutar la orden de test: {res['error']}")
+            else:
+                memory.setdefault("trades", []).append({
+                    "type": "BUY",
+                    "price": price,
+                    "quantity": quantity,
+                    "time": datetime.now().isoformat()
+                })
+                memory["last_action"] = "BUY"
+                save_memory(memory)
+                report("BUY", price)
+                usdt_post, eth_post = get_balance()
+                send_message(f"✅ Orden de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
+
+                time.sleep(5)  # Pausa breve antes de vender
+
+                # Orden de venta de test inmediatamente después de la compra
+                price = get_price()
+                res_sell = place_order("SELL", quantity)
+                if "error" in res_sell and res_sell["error"]:
+                    send_message(f"⚠️ Error al ejecutar la orden de venta de test: {res_sell['error']}")
+                else:
+                    memory.setdefault("trades", []).append({
+                        "type": "SELL",
+                        "price": price,
+                        "quantity": quantity,
+                        "time": datetime.now().isoformat()
+                    })
+                    memory["last_action"] = "SELL"
+                    save_memory(memory)
+                report("SELL", price)
+                usdt_post, eth_post = get_balance()
+                send_message(f"✅ Venta de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
+                send_message("✅ Test buy done.\nLuciano, ya ejecuté la orden en Kraken: compré y vendí como prueba. Relajate, que me encargo yo desde acá. 🚀")
+    except Exception as e:
+        send_message(f"❌ Error durante ejecución de orden de test inicial: {str(e)}")
     last_notified_action = memory["last_action"]
 
     while True:
