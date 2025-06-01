@@ -25,22 +25,36 @@ TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.01"))
 
 def send_message(msg):
     try:
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": msg})
-    except:
-        pass
+        response = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            data={"chat_id": CHAT_ID, "text": msg}
+        )
+        if not response.ok:
+            print(f"[TELEGRAM ERROR] No se pudo enviar mensaje: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"[TELEGRAM EXCEPTION] {str(e)}")
 
 def handle_command():
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     try:
+        offset_file = "telegram_offset.txt"
+        offset = 0
+        if os.path.exists(offset_file):
+            with open(offset_file, "r") as f:
+                offset = int(f.read().strip())
+
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset + 1}"
         res = requests.get(url).json()
+
         for update in res.get("result", []):
             msg = update.get("message", {})
             text = msg.get("text", "")
             chat_id = str(msg.get("chat", {}).get("id"))
+            update_id = update["update_id"]
+
             if chat_id != CHAT_ID:
                 continue
+
             if "/status" in text.lower():
-                from datetime import datetime
                 mem = load_memory()
                 trades = mem.get("trades", [])
                 summary = "📊 Resumen de operaciones del día:\n"
@@ -53,17 +67,21 @@ def handle_command():
                 if not trades or today not in [datetime.fromisoformat(t["time"]).date() for t in trades]:
                     summary += "Sin operaciones hoy.\n"
                 send_message("✅ Bot funcionando correctamente. Monitoreando mercado ETH.\n" + summary)
+
             elif "/balance" in text.lower():
                 usdt, eth = get_balance()
                 send_message(f"💰 Balance actual:\n- USDT: ${usdt:.2f}\n- ETH: {eth:.5f}")
+
             elif "/log" in text.lower():
                 mem = load_memory()
                 last_action = mem["last_action"] if mem["last_action"] else "Ninguna acción registrada."
                 send_message(f"🧾 Última acción del bot: {last_action}")
-            # ✅ Agregado para evitar repetición del mismo comando
-            requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={update['update_id'] + 1}")
+
+            # Guardar el offset actualizado
+            with open(offset_file, "w") as f:
+                f.write(str(update_id))
     except Exception as e:
-        send_message(f"❌ Error al verificar comandos: {str(e)}")
+        send_message(f"❌ Error al procesar comandos de Telegram: {str(e)}")
 
 def kraken_request(endpoint, data):
     url_path = f"/0/private/{endpoint}"
@@ -196,9 +214,25 @@ def report(trade_type, price):
     send_message(f"{emoji} {msg}")
 
 def main():
+    send_message("🟢 Test directo: el bot Kraken está vivo y conectado.")
     memory = load_memory()
     send_message("✅ ETH SUPREME BOT relanzado correctamente. Esperando balance y ejecutando chequeos iniciales...")
     print("BOT relanzado correctamente, comenzando chequeo de balance...")
+    print("🔍 Verificando estado de conexión inicial...")
+
+    # Verificación de claves esenciales
+    if not API_KEY or not PRIVATE_KEY or not BASE_URL:
+        send_message("❌ ERROR: Faltan claves esenciales de Kraken en el .env.")
+        print("❌ ERROR: Faltan claves esenciales de Kraken en el .env.")
+    else:
+        print("✅ Claves Kraken cargadas correctamente.")
+
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        print("❌ ERROR: Faltan claves de Telegram en el .env.")
+    else:
+        print("✅ Claves de Telegram cargadas correctamente.")
+
+    send_message("ℹ️ Bot revisó las claves de entorno. Ver consola de Render para más info.")
     if "last_action" not in memory:
         memory["last_action"] = None
         save_memory(memory)
@@ -299,6 +333,21 @@ def main():
     while True:
         time.sleep(60 + random.randint(0, 5))  # Espera mínima para evitar sobrecarga de Kraken API
         modo_dios_legandario(memory)
+        # 🧠 Reporte inteligente de actividad del bot cada 30 minutos
+        now = datetime.now()
+        last_status = memory.get("last_status_report")
+        if not last_status or (now - datetime.fromisoformat(last_status)).total_seconds() > 1800:
+            current_price = get_price()
+            trend = "📈 al alza" if current_price > memory.get("last_idle_price", current_price) else "📉 a la baja"
+            msg_options = [
+                f"✅ Sigo vivo y analizando el mercado ETH. Último precio: ${current_price:.2f} ({trend}).",
+                f"🧠 Estoy monitoreando posibles entradas. ETH a ${current_price:.2f}, esperando oportunidad clara.",
+                f"🔎 Luciano, el bot sigue operativo. ETH se mueve {trend}, sin señales fuertes todavía."
+            ]
+            import random
+            send_message(random.choice(msg_options))
+            memory["last_status_report"] = now.isoformat()
+            save_memory(memory)
         handle_command()
         try:
             usdt, eth = get_balance()
