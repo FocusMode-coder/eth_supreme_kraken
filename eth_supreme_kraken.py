@@ -6,7 +6,7 @@ import hashlib
 import base64
 import requests
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import random
 
@@ -60,6 +60,8 @@ def handle_command():
                 mem = load_memory()
                 last_action = mem["last_action"] if mem["last_action"] else "Ninguna acción registrada."
                 send_message(f"🧾 Última acción del bot: {last_action}")
+            # ✅ Agregado para evitar repetición del mismo comando
+            requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={update['update_id'] + 1}")
     except Exception as e:
         send_message(f"❌ Error al verificar comandos: {str(e)}")
 
@@ -265,8 +267,38 @@ def main():
         send_message(f"❌ Error durante ejecución de orden de test inicial: {str(e)}")
     last_notified_action = memory["last_action"]
 
+    # 🔥 MODO DIOS LEGENDARIO ACTIVADO
+    def modo_dios_legandario(memory):
+        # Detecta si el bot lleva mucho tiempo sin ejecutar una acción o con errores repetidos
+        now = datetime.now()
+        last_trade_time = None
+        if memory.get("trades"):
+            last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
+        else:
+            last_trade_time = now - timedelta(minutes=999)
+
+        elapsed_minutes = (now - last_trade_time).total_seconds() / 60
+        memory["last_checkup"] = now.isoformat()
+
+        # Si pasaron más de 90 minutos sin operar y el precio se movió más de 1.5%, enviar alerta
+        if elapsed_minutes > 90:
+            current_price = get_price()
+            if "last_idle_price" not in memory:
+                memory["last_idle_price"] = current_price
+                save_memory(memory)
+            else:
+                price_diff = abs(current_price - memory["last_idle_price"]) / memory["last_idle_price"]
+                if price_diff > 0.015:
+                    send_message(f"⚠️ MODO DIOS detectó inactividad prolongada con movimiento de mercado.\n"
+                                 f"Pasaron {int(elapsed_minutes)} min sin operar y el precio se movió más de 1.5%\n"
+                                 f"ETH ahora está en ${current_price:.2f}.\n"
+                                 f"👉 Considerá revisar o reiniciar manualmente el bot.")
+                    memory["last_idle_price"] = current_price
+                    save_memory(memory)
+
     while True:
         time.sleep(60 + random.randint(0, 5))  # Espera mínima para evitar sobrecarga de Kraken API
+        modo_dios_legandario(memory)
         handle_command()
         try:
             usdt, eth = get_balance()
