@@ -195,6 +195,8 @@ def report(trade_type, price):
 
 def main():
     memory = load_memory()
+    send_message("✅ ETH SUPREME BOT relanzado correctamente. Esperando balance y ejecutando chequeos iniciales...")
+    print("BOT relanzado correctamente, comenzando chequeo de balance...")
     if "last_action" not in memory:
         memory["last_action"] = None
         save_memory(memory)
@@ -268,7 +270,9 @@ def main():
         handle_command()
         try:
             usdt, eth = get_balance()
+            print(f"[INFO] Balance actual → USDT: ${usdt:.2f}, ETH: {eth:.6f}")
             price = get_price()
+            print(f"[INFO] Precio ETH actual: ${price:.2f}")
             if price == 0:
                 send_message("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
                 time.sleep(60)
@@ -285,6 +289,7 @@ def main():
             action = decision(price, usdt, eth, memory)
 
             if action in ["BUY", "SELL"]:
+                print(f"[TRADE DECISION] Acción decidida: {action}")
                 if action == last_notified_action:
                     pass  # no repetir mensaje si es igual a la anterior
                 else:
@@ -304,4 +309,5 @@ def main():
                         report(action, price)
 
         except Exception as e:
+            print(f"[ERROR] {str(e)}")
             send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
