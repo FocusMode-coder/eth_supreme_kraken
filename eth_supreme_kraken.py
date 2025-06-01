@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 
 # Load environment
 load_dotenv()
-API_KEY = os.getenv("KRAKEN_API_KEY")
-PRIVATE_KEY = os.getenv("KRAKEN_PRIVATE_KEY")
+API_KEY = "qDNuQzauoWMtpaGPNA+xvmKHwygn20eX3FDAgSW7Lb/ht9ySiphGB/3r"
+PRIVATE_KEY = "NwWqoapf1vNrcK73/YWy3TD+zOe4TPN3cv4XgElGAi4kntwKfn2IIlBhfRcBX2/kIRIJXsxzdB0nwaKDrz1S8w=="
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -78,8 +78,14 @@ def kraken_request(endpoint, data):
 def get_balance():
     res = kraken_request("Balance", {})
     if "result" in res:
-        return float(res["result"].get("ZUSD", 0)), float(res["result"].get("XETH", 0))
-    return 0, 0
+        if res["result"]:
+            return float(res["result"].get("ZUSD", 0)), float(res["result"].get("XETH", 0))
+        else:
+            send_message("⚠️ Kraken devolvió balances vacíos o incompletos: " + json.dumps(res))
+            return 0, 0
+    else:
+        send_message(f"❌ Error de Kraken al obtener balances: {json.dumps(res)}")
+        return 0, 0
 
 def get_price():
     try:
@@ -169,7 +175,9 @@ def main():
     if "last_action" not in memory:
         memory["last_action"] = None
         save_memory(memory)
-    send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
+    # Mejorar mensaje de bienvenida: solo enviar si no ha sido reportado antes
+    if not memory.get("last_action"):
+        send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
     # --- Orden de compra inicial de test por $10 USD ---
     try:
         usdt, eth = get_balance()
