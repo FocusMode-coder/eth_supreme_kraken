@@ -8,6 +8,7 @@ import requests
 import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
+import random
 
 # Load environment
 load_dotenv()
@@ -76,6 +77,7 @@ def kraken_request(endpoint, data):
     return requests.post(url, headers=headers, data=data).json()
 
 def get_balance():
+    time.sleep(3)
     res = kraken_request("Balance", {})
     if "result" in res:
         if res["result"]:
@@ -84,7 +86,11 @@ def get_balance():
             send_message("⚠️ Kraken devolvió balances vacíos o incompletos: " + json.dumps(res))
             return 0, 0
     else:
-        send_message(f"❌ Error de Kraken al obtener balances: {json.dumps(res)}")
+        if "error" in res and any("lockout" in err.lower() for err in res["error"]):
+            send_message("⛔ Kraken API ha devuelto un bloqueo temporal (lockout). Esperando antes de reintentar.")
+            time.sleep(60)
+        else:
+            send_message(f"❌ Error de Kraken al obtener balances: {json.dumps(res)}")
         return 0, 0
 
 def get_price():
@@ -229,6 +235,7 @@ def main():
     last_notified_action = memory["last_action"]
 
     while True:
+        time.sleep(1)  # Espera mínima para evitar sobrecarga de Kraken API
         handle_command()
         # --- Idle notification block ---
         idle_minutes = 30
@@ -272,7 +279,7 @@ def main():
         except Exception as e:
             send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
 
-        time.sleep(60)
+        time.sleep(60 + random.randint(0, 5))
 
 if __name__ == "__main__":
     main()
