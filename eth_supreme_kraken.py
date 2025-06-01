@@ -28,6 +28,27 @@ def send_message(msg):
     except:
         pass
 
+def handle_command():
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    try:
+        res = requests.get(url).json()
+        for update in res.get("result", []):
+            msg = update.get("message", {})
+            text = msg.get("text", "")
+            chat_id = str(msg.get("chat", {}).get("id"))
+            if chat_id != CHAT_ID:
+                continue
+            if "/status" in text.lower():
+                send_message("✅ Bot funcionando correctamente. Monitoreando mercado ETH.")
+            elif "/balance" in text.lower():
+                usdt, eth = get_balance()
+                send_message(f"💰 Balance actual:\n- USDT: ${usdt:.2f}\n- ETH: {eth:.5f}")
+            elif "/log" in text.lower():
+                last_action = load_memory().get("last_action", "Ninguna acción registrada.")
+                send_message(f"🧾 Última acción del bot: {last_action}")
+    except Exception as e:
+        send_message(f"❌ Error al verificar comandos: {str(e)}")
+
 def kraken_request(endpoint, data):
     url_path = f"/0/private/{endpoint}"
     url = BASE_URL + url_path
@@ -56,9 +77,26 @@ def get_price():
 
 def load_memory():
     if not os.path.exists(MEMORY_FILE):
-        return {"trades": [], "last_action": None}
-    with open(MEMORY_FILE, "r") as f:
-        return json.load(f)
+        memory = {
+            "trades": [],
+            "balance_snapshots": [],
+            "strategy_notes": "ETH Supreme Kraken initialized. Tracking trade memory and balance snapshots.",
+            "last_action": None
+        }
+        save_memory(memory)
+        return memory
+    try:
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        memory = {
+            "trades": [],
+            "balance_snapshots": [],
+            "strategy_notes": "ETH Supreme Kraken recovered from memory error.",
+            "last_action": None
+        }
+        save_memory(memory)
+        return memory
 
 def save_memory(data):
     with open(MEMORY_FILE, "w") as f:
@@ -116,8 +154,21 @@ def report(trade_type, price):
 def main():
     memory = load_memory()
     send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
+    last_notified_action = memory.get("last_action")
 
     while True:
+        handle_command()
+        # --- Idle notification block ---
+        idle_minutes = 30
+        last_trade_time = None
+        if memory.get("trades"):
+            last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
+            price = get_price()
+            if price != 0:
+                elapsed = (datetime.now() - last_trade_time).total_seconds() / 60
+                if elapsed > idle_minutes:
+                    send_message(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
+        # --- End idle notification block ---
         try:
             usdt, eth = get_balance()
             price = get_price()
@@ -128,19 +179,23 @@ def main():
             action = decision(price, usdt, eth, memory)
 
             if action in ["BUY", "SELL"]:
-                res = place_order(action, TRADE_QUANTITY)
-                if "error" in res and res["error"]:
-                    send_message(f"⚠️ Luciano, error al ejecutar {action}: {res['error']}")
+                if action == last_notified_action:
+                    pass  # no repetir mensaje si es igual a la anterior
                 else:
-                    memory.setdefault("trades", []).append({
-                        "type": action,
-                        "price": price,
-                        "quantity": TRADE_QUANTITY,
-                        "time": datetime.now().isoformat()
-                    })
-                    memory["last_action"] = action
-                    save_memory(memory)
-                    report(action, price)
+                    res = place_order(action, TRADE_QUANTITY)
+                    if "error" in res and res["error"]:
+                        send_message(f"⚠️ Luciano, error al ejecutar {action}: {res['error']}")
+                    else:
+                        memory.setdefault("trades", []).append({
+                            "type": action,
+                            "price": price,
+                            "quantity": TRADE_QUANTITY,
+                            "time": datetime.now().isoformat()
+                        })
+                        memory["last_action"] = action
+                        last_notified_action = action
+                        save_memory(memory)
+                        report(action, price)
 
         except Exception as e:
             send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
