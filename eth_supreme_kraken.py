@@ -12,8 +12,8 @@ import random
 
 # Load environment
 load_dotenv()
-API_KEY = os.getenv("KRAKEN_API_KEY")
-PRIVATE_KEY = os.getenv("KRAKEN_PRIVATE_KEY")
+API_KEY = os.environ.get("KRAKEN_API_KEY")
+PRIVATE_KEY = os.environ.get("KRAKEN_PRIVATE_KEY")
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7613460488")
