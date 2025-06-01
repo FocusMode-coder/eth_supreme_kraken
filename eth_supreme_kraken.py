@@ -44,7 +44,8 @@ def handle_command():
                 usdt, eth = get_balance()
                 send_message(f"💰 Balance actual:\n- USDT: ${usdt:.2f}\n- ETH: {eth:.5f}")
             elif "/log" in text.lower():
-                last_action = load_memory().get("last_action", "Ninguna acción registrada.")
+                mem = load_memory()
+                last_action = mem["last_action"] if mem["last_action"] else "Ninguna acción registrada."
                 send_message(f"🧾 Última acción del bot: {last_action}")
     except Exception as e:
         send_message(f"❌ Error al verificar comandos: {str(e)}")
@@ -153,8 +154,11 @@ def report(trade_type, price):
 
 def main():
     memory = load_memory()
+    if "last_action" not in memory:
+        memory["last_action"] = None
+        save_memory(memory)
     send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
-    last_notified_action = memory.get("last_action")
+    last_notified_action = memory["last_action"]
 
     while True:
         handle_command()
