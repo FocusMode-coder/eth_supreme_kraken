@@ -16,7 +16,7 @@ API_KEY = os.getenv("KRAKEN_API_KEY")
 PRIVATE_KEY = os.getenv("KRAKEN_PRIVATE_KEY")
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7613460488")
 PAIR = "XETHZUSD"
 LOG_FILE = os.getenv("LOG_FILE", "kraken_log.txt")
 MEMORY_FILE = "eth_memory.json"
@@ -51,6 +51,7 @@ def handle_command():
             chat_id = str(msg.get("chat", {}).get("id"))
             update_id = update["update_id"]
 
+            # Always compare to CHAT_ID variable
             if chat_id != CHAT_ID:
                 continue
 
@@ -76,6 +77,24 @@ def handle_command():
                 mem = load_memory()
                 last_action = mem["last_action"] if mem["last_action"] else "Ninguna acción registrada."
                 send_message(f"🧾 Última acción del bot: {last_action}")
+
+            elif "/diagnostico" in text.lower():
+                try:
+                    price = get_price()
+                    usdt, eth = get_balance()
+                    mem = load_memory()
+                    msg = (
+                        f"🧪 Diagnóstico del bot Kraken:\n"
+                        f"- Precio ETH actual: ${price:.2f}\n"
+                        f"- Balance:\n  • USDT: ${usdt:.2f}\n  • ETH: {eth:.6f}\n"
+                        f"- Última acción: {mem.get('last_action', 'Ninguna')}\n"
+                        f"- Último trade: {mem['trades'][-1] if mem.get('trades') else 'Ninguno'}\n"
+                        f"- Estrategia activa: Decision lógica basada en precio y memoria\n"
+                        f"- Estado: {'ACTIVO ✅' if price > 0 else 'SIN CONEXIÓN ❌'}"
+                    )
+                    send_message(msg)
+                except Exception as e:
+                    send_message(f"❌ Error en diagnóstico: {str(e)}")
 
             # Guardar el offset actualizado
             with open(offset_file, "w") as f:
@@ -229,166 +248,172 @@ def main():
 
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("❌ ERROR: Faltan claves de Telegram en el .env.")
+        return
     else:
         print("✅ Claves de Telegram cargadas correctamente.")
 
-    send_message("ℹ️ Bot revisó las claves de entorno. Ver consola de Render para más info.")
-    if "last_action" not in memory:
-        memory["last_action"] = None
-        save_memory(memory)
-    # Asegura que la clave last_lockout_warning exista y persiste
-    memory.setdefault("last_lockout_warning", None)
-    memory.setdefault("last_funds_warning", None)
-    save_memory(memory)
-    # Mejorar mensaje de bienvenida: solo enviar si no ha sido reportado antes de 1 hora
-    if not memory.get("last_action"):
-        if not memory.get("last_connection_reported") or (datetime.now() - datetime.fromisoformat(memory.get("last_connection_reported", "1970-01-01T00:00:00"))).total_seconds() > 3600:
-            send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
-            memory["last_connection_reported"] = datetime.now().isoformat()
+        send_message("ℹ️ Bot revisó las claves de entorno. Ver consola de Render para más info.")
+        if "last_action" not in memory:
+            memory["last_action"] = None
             save_memory(memory)
-    # --- Orden de compra inicial de test por $10 USD ---
-    try:
-        usdt, eth = get_balance()
-        price = get_price()
-        now = datetime.now()
-        if price == 0:
-            send_message("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
-        elif usdt < 10:
-            last_warning = memory.get("last_funds_warning")
-            if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
-                send_message(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
-                memory["last_funds_warning"] = now.isoformat()
+        # Asegura que la clave last_lockout_warning exista y persiste
+        memory.setdefault("last_lockout_warning", None)
+        memory.setdefault("last_funds_warning", None)
+        save_memory(memory)
+        # Mejorar mensaje de bienvenida: solo enviar si no ha sido reportado antes de 1 hora
+        if not memory.get("last_action"):
+            if not memory.get("last_connection_reported") or (datetime.now() - datetime.fromisoformat(memory.get("last_connection_reported", "1970-01-01T00:00:00"))).total_seconds() > 3600:
+                send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
+                memory["last_connection_reported"] = datetime.now().isoformat()
                 save_memory(memory)
-        else:
-            quantity = round(10 / price, 6)
-            res = place_order("BUY", quantity)
-            if "error" in res and res["error"]:
-                send_message(f"⚠️ Error al ejecutar la orden de test: {res['error']}")
+        # --- Orden de compra inicial de test por $10 USD ---
+        try:
+            usdt, eth = get_balance()
+            price = get_price()
+            now = datetime.now()
+            if price == 0:
+                send_message("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
+            elif usdt < 10:
+                last_warning = memory.get("last_funds_warning")
+                if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
+                    send_message(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
+                    memory["last_funds_warning"] = now.isoformat()
+                    save_memory(memory)
             else:
-                memory.setdefault("trades", []).append({
-                    "type": "BUY",
-                    "price": price,
-                    "quantity": quantity,
-                    "time": datetime.now().isoformat()
-                })
-                memory["last_action"] = "BUY"
-                save_memory(memory)
-                report("BUY", price)
-                usdt_post, eth_post = get_balance()
-                send_message(f"✅ Orden de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
-
-                time.sleep(5)  # Pausa breve antes de vender
-
-                # Orden de venta de test inmediatamente después de la compra
-                price = get_price()
-                res_sell = place_order("SELL", quantity)
-                if "error" in res_sell and res_sell["error"]:
-                    send_message(f"⚠️ Error al ejecutar la orden de venta de test: {res_sell['error']}")
+                quantity = round(10 / price, 6)
+                res = place_order("BUY", quantity)
+                if "error" in res and res["error"]:
+                    send_message(f"⚠️ Error al ejecutar la orden de test: {res['error']}")
                 else:
                     memory.setdefault("trades", []).append({
-                        "type": "SELL",
+                        "type": "BUY",
                         "price": price,
                         "quantity": quantity,
                         "time": datetime.now().isoformat()
                     })
-                    memory["last_action"] = "SELL"
+                    memory["last_action"] = "BUY"
                     save_memory(memory)
-                report("SELL", price)
-                usdt_post, eth_post = get_balance()
-                send_message(f"✅ Venta de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
-                send_message("✅ Test buy done.\nLuciano, ya ejecuté la orden en Kraken: compré y vendí como prueba. Relajate, que me encargo yo desde acá. 🚀")
-    except Exception as e:
-        send_message(f"❌ Error durante ejecución de orden de test inicial: {str(e)}")
-    last_notified_action = memory["last_action"]
+                    report("BUY", price)
+                    usdt_post, eth_post = get_balance()
+                    send_message(f"✅ Orden de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
 
-    # 🔥 MODO DIOS LEGENDARIO ACTIVADO
-    def modo_dios_legandario(memory):
-        # Detecta si el bot lleva mucho tiempo sin ejecutar una acción o con errores repetidos
-        now = datetime.now()
-        last_trade_time = None
-        if memory.get("trades"):
-            last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
-        else:
-            last_trade_time = now - timedelta(minutes=999)
+                    time.sleep(5)  # Pausa breve antes de vender
 
-        elapsed_minutes = (now - last_trade_time).total_seconds() / 60
-        memory["last_checkup"] = now.isoformat()
-
-        # Si pasaron más de 90 minutos sin operar y el precio se movió más de 1.5%, enviar alerta
-        if elapsed_minutes > 90:
-            current_price = get_price()
-            if "last_idle_price" not in memory:
-                memory["last_idle_price"] = current_price
-                save_memory(memory)
-            else:
-                price_diff = abs(current_price - memory["last_idle_price"]) / memory["last_idle_price"]
-                if price_diff > 0.015:
-                    send_message(f"⚠️ MODO DIOS detectó inactividad prolongada con movimiento de mercado.\n"
-                                 f"Pasaron {int(elapsed_minutes)} min sin operar y el precio se movió más de 1.5%\n"
-                                 f"ETH ahora está en ${current_price:.2f}.\n"
-                                 f"👉 Considerá revisar o reiniciar manualmente el bot.")
-                    memory["last_idle_price"] = current_price
-                    save_memory(memory)
-
-    while True:
-        time.sleep(60 + random.randint(0, 5))  # Espera mínima para evitar sobrecarga de Kraken API
-        modo_dios_legandario(memory)
-        # 🧠 Reporte inteligente de actividad del bot cada 30 minutos
-        now = datetime.now()
-        last_status = memory.get("last_status_report")
-        if not last_status or (now - datetime.fromisoformat(last_status)).total_seconds() > 1800:
-            current_price = get_price()
-            trend = "📈 al alza" if current_price > memory.get("last_idle_price", current_price) else "📉 a la baja"
-            msg_options = [
-                f"✅ Sigo vivo y analizando el mercado ETH. Último precio: ${current_price:.2f} ({trend}).",
-                f"🧠 Estoy monitoreando posibles entradas. ETH a ${current_price:.2f}, esperando oportunidad clara.",
-                f"🔎 Luciano, el bot sigue operativo. ETH se mueve {trend}, sin señales fuertes todavía."
-            ]
-            import random
-            send_message(random.choice(msg_options))
-            memory["last_status_report"] = now.isoformat()
-            save_memory(memory)
-        handle_command()
-        try:
-            usdt, eth = get_balance()
-            print(f"[INFO] Balance actual → USDT: ${usdt:.2f}, ETH: {eth:.6f}")
-            price = get_price()
-            print(f"[INFO] Precio ETH actual: ${price:.2f}")
-            if price == 0:
-                send_message("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
-                time.sleep(60)
-                continue
-            # --- Idle notification block ---
-            if memory.get("trades") and price != 0:
-                last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
-                elapsed = (datetime.now() - last_trade_time).total_seconds() / 60
-                idle_minutes = 30
-                if elapsed > idle_minutes:
-                    send_message(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
-            # --- End idle notification block ---
-
-            action = decision(price, usdt, eth, memory)
-
-            if action in ["BUY", "SELL"]:
-                print(f"[TRADE DECISION] Acción decidida: {action}")
-                if action == last_notified_action:
-                    pass  # no repetir mensaje si es igual a la anterior
-                else:
-                    res = place_order(action, TRADE_QUANTITY)
-                    if "error" in res and res["error"]:
-                        send_message(f"⚠️ Luciano, error al ejecutar {action}: {res['error']}")
+                    # Orden de venta de test inmediatamente después de la compra
+                    price = get_price()
+                    res_sell = place_order("SELL", quantity)
+                    if "error" in res_sell and res_sell["error"]:
+                        send_message(f"⚠️ Error al ejecutar la orden de venta de test: {res_sell['error']}")
                     else:
                         memory.setdefault("trades", []).append({
-                            "type": action,
+                            "type": "SELL",
                             "price": price,
-                            "quantity": TRADE_QUANTITY,
+                            "quantity": quantity,
                             "time": datetime.now().isoformat()
                         })
-                        memory["last_action"] = action
-                        last_notified_action = action
+                        memory["last_action"] = "SELL"
                         save_memory(memory)
-                        report(action, price)
-
+                    report("SELL", price)
+                    usdt_post, eth_post = get_balance()
+                    send_message(f"✅ Venta de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
+                    send_message("✅ Test buy done.\nLuciano, ya ejecuté la orden en Kraken: compré y vendí como prueba. Relajate, que me encargo yo desde acá. 🚀")
         except Exception as e:
-            print(f"[ERROR] {str(e)}")
-            send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
+            send_message(f"❌ Error durante ejecución de orden de test inicial: {str(e)}")
+        last_notified_action = memory["last_action"]
+
+        # 🔥 MODO DIOS LEGENDARIO ACTIVADO
+        def modo_dios_legandario(memory):
+            # Detecta si el bot lleva mucho tiempo sin ejecutar una acción o con errores repetidos
+            now = datetime.now()
+            last_trade_time = None
+            if memory.get("trades"):
+                last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
+            else:
+                last_trade_time = now - timedelta(minutes=999)
+
+            elapsed_minutes = (now - last_trade_time).total_seconds() / 60
+            memory["last_checkup"] = now.isoformat()
+
+            # Si pasaron más de 90 minutos sin operar y el precio se movió más de 1.5%, enviar alerta
+            if elapsed_minutes > 90:
+                current_price = get_price()
+                if "last_idle_price" not in memory:
+                    memory["last_idle_price"] = current_price
+                    save_memory(memory)
+                else:
+                    price_diff = abs(current_price - memory["last_idle_price"]) / memory["last_idle_price"]
+                    if price_diff > 0.015:
+                        send_message(f"⚠️ MODO DIOS detectó inactividad prolongada con movimiento de mercado.\n"
+                                     f"Pasaron {int(elapsed_minutes)} min sin operar y el precio se movió más de 1.5%\n"
+                                     f"ETH ahora está en ${current_price:.2f}.\n"
+                                     f"👉 Considerá revisar o reiniciar manualmente el bot.")
+                        memory["last_idle_price"] = current_price
+                        save_memory(memory)
+
+        while True:
+            time.sleep(60 + random.randint(0, 5))  # Espera mínima para evitar sobrecarga de Kraken API
+            modo_dios_legandario(memory)
+            # 🧠 Reporte inteligente de actividad del bot cada 30 minutos
+            now = datetime.now()
+            last_status = memory.get("last_status_report")
+            if not last_status or (now - datetime.fromisoformat(last_status)).total_seconds() > 1800:
+                current_price = get_price()
+                trend = "📈 al alza" if current_price > memory.get("last_idle_price", current_price) else "📉 a la baja"
+                msg_options = [
+                    f"✅ Sigo vivo y analizando el mercado ETH. Último precio: ${current_price:.2f} ({trend}).",
+                    f"🧠 Estoy monitoreando posibles entradas. ETH a ${current_price:.2f}, esperando oportunidad clara.",
+                    f"🔎 Luciano, el bot sigue operativo. ETH se mueve {trend}, sin señales fuertes todavía."
+                ]
+                import random
+                send_message(random.choice(msg_options))
+                memory["last_status_report"] = now.isoformat()
+                save_memory(memory)
+            handle_command()
+            try:
+                usdt, eth = get_balance()
+                print(f"[INFO] Balance actual → USDT: ${usdt:.2f}, ETH: {eth:.6f}")
+                price = get_price()
+                print(f"[INFO] Precio ETH actual: ${price:.2f}")
+                if price == 0:
+                    send_message("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
+                    time.sleep(60)
+                    continue
+                # --- Idle notification block ---
+                if memory.get("trades") and price != 0:
+                    last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
+                    elapsed = (datetime.now() - last_trade_time).total_seconds() / 60
+                    idle_minutes = 30
+                    if elapsed > idle_minutes:
+                        send_message(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
+                # --- End idle notification block ---
+
+                action = decision(price, usdt, eth, memory)
+
+                if action in ["BUY", "SELL"]:
+                    print(f"[TRADE DECISION] Acción decidida: {action}")
+                    if action == last_notified_action:
+                        pass  # no repetir mensaje si es igual a la anterior
+                    else:
+                        res = place_order(action, TRADE_QUANTITY)
+                        if "error" in res and res["error"]:
+                            send_message(f"⚠️ Luciano, error al ejecutar {action}: {res['error']}")
+                        else:
+                            memory.setdefault("trades", []).append({
+                                "type": action,
+                                "price": price,
+                                "quantity": TRADE_QUANTITY,
+                                "time": datetime.now().isoformat()
+                            })
+                            memory["last_action"] = action
+                            last_notified_action = action
+                            save_memory(memory)
+                            report(action, price)
+
+            except Exception as e:
+                print(f"[ERROR] {str(e)}")
+                send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
+
+
+# Llamada a main() si el script es ejecutado directamente
+if __name__ == "__main__":
+    main()
