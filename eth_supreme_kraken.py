@@ -12,8 +12,8 @@ import random
 
 # Load environment
 load_dotenv()
-API_KEY = "P32lxqOfA/BzN3JiHLfWhqtrR4srRqzsQWZ9cJos6vfkdoSCq+f0HsD2"
-PRIVATE_KEY = "pbSaj5UKAvEGuRKnVMQDRA3tsDRzoo3FYJTcgAwT5QN1i2gYmFT/p/TcEcLXOqG6DCcmOmBH6O/2OF9bZ0QgKw=="
+API_KEY = os.getenv("KRAKEN_API_KEY")
+PRIVATE_KEY = os.getenv("KRAKEN_PRIVATE_KEY")
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -87,8 +87,15 @@ def get_balance():
             return 0, 0
     else:
         if "error" in res and any("lockout" in err.lower() for err in res["error"]):
-            send_message("⛔ Kraken API ha devuelto un bloqueo temporal (lockout). Esperando antes de reintentar.")
-            time.sleep(60)
+            now = datetime.now()
+            # load memory to avoid circular import
+            memory = load_memory()
+            last_warning = memory.get("last_lockout_warning")
+            if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
+                send_message("⛔ Kraken API ha devuelto un bloqueo temporal (lockout). Esperando antes de reintentar.")
+                memory["last_lockout_warning"] = now.isoformat()
+                save_memory(memory)
+            time.sleep(900)  # Esperar 15 minutos en caso de bloqueo
         else:
             send_message(f"❌ Error de Kraken al obtener balances: {json.dumps(res)}")
         return 0, 0
@@ -106,19 +113,29 @@ def load_memory():
             "trades": [],
             "balance_snapshots": [],
             "strategy_notes": "ETH Supreme Kraken initialized. Tracking trade memory and balance snapshots.",
-            "last_action": None
+            "last_action": None,
+            "last_lockout_warning": None,
+            "last_funds_warning": None
         }
         save_memory(memory)
         return memory
     try:
         with open(MEMORY_FILE, "r") as f:
-            return json.load(f)
+            memory = json.load(f)
+            # Asegurar claves por defecto
+            if "last_lockout_warning" not in memory:
+                memory["last_lockout_warning"] = None
+            if "last_funds_warning" not in memory:
+                memory["last_funds_warning"] = None
+            return memory
     except:
         memory = {
             "trades": [],
             "balance_snapshots": [],
             "strategy_notes": "ETH Supreme Kraken recovered from memory error.",
-            "last_action": None
+            "last_action": None,
+            "last_lockout_warning": None,
+            "last_funds_warning": None
         }
         save_memory(memory)
         return memory
@@ -181,17 +198,29 @@ def main():
     if "last_action" not in memory:
         memory["last_action"] = None
         save_memory(memory)
-    # Mejorar mensaje de bienvenida: solo enviar si no ha sido reportado antes
+    # Asegura que la clave last_lockout_warning exista y persiste
+    memory.setdefault("last_lockout_warning", None)
+    memory.setdefault("last_funds_warning", None)
+    save_memory(memory)
+    # Mejorar mensaje de bienvenida: solo enviar si no ha sido reportado antes de 1 hora
     if not memory.get("last_action"):
-        send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
+        if not memory.get("last_connection_reported") or (datetime.now() - datetime.fromisoformat(memory.get("last_connection_reported", "1970-01-01T00:00:00"))).total_seconds() > 3600:
+            send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
+            memory["last_connection_reported"] = datetime.now().isoformat()
+            save_memory(memory)
     # --- Orden de compra inicial de test por $10 USD ---
     try:
         usdt, eth = get_balance()
         price = get_price()
+        now = datetime.now()
         if price == 0:
             send_message("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
         elif usdt < 10:
-            send_message(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
+            last_warning = memory.get("last_funds_warning")
+            if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
+                send_message(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
+                memory["last_funds_warning"] = now.isoformat()
+                save_memory(memory)
         else:
             quantity = round(10 / price, 6)
             res = place_order("BUY", quantity)
@@ -235,19 +264,8 @@ def main():
     last_notified_action = memory["last_action"]
 
     while True:
-        time.sleep(1)  # Espera mínima para evitar sobrecarga de Kraken API
+        time.sleep(60 + random.randint(0, 5))  # Espera mínima para evitar sobrecarga de Kraken API
         handle_command()
-        # --- Idle notification block ---
-        idle_minutes = 30
-        last_trade_time = None
-        if memory.get("trades"):
-            last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
-            price = get_price()
-            if price != 0:
-                elapsed = (datetime.now() - last_trade_time).total_seconds() / 60
-                if elapsed > idle_minutes:
-                    send_message(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
-        # --- End idle notification block ---
         try:
             usdt, eth = get_balance()
             price = get_price()
@@ -255,6 +273,15 @@ def main():
                 send_message("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
                 time.sleep(60)
                 continue
+            # --- Idle notification block ---
+            if memory.get("trades") and price != 0:
+                last_trade_time = datetime.fromisoformat(memory["trades"][-1]["time"])
+                elapsed = (datetime.now() - last_trade_time).total_seconds() / 60
+                idle_minutes = 30
+                if elapsed > idle_minutes:
+                    send_message(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
+            # --- End idle notification block ---
+
             action = decision(price, usdt, eth, memory)
 
             if action in ["BUY", "SELL"]:
@@ -278,8 +305,3 @@ def main():
 
         except Exception as e:
             send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
-
-        time.sleep(60 + random.randint(0, 5))
-
-if __name__ == "__main__":
-    main()
