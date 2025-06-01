@@ -227,7 +227,6 @@ def report(trade_type, price):
             "Con calma y estrategia, vendí {qty} ETH a ${prc:.2f}. Así se hace, Luciano."
         ]
     }
-    import random
     msg = random.choice(emotional_msgs[trade_type]).format(qty=TRADE_QUANTITY, prc=price)
     msg += f"\n🤖 Bot Supremo en acción.\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     send_message(f"{emoji} {msg}")
@@ -364,7 +363,6 @@ def main():
                     f"🧠 Estoy monitoreando posibles entradas. ETH a ${current_price:.2f}, esperando oportunidad clara.",
                     f"🔎 Luciano, el bot sigue operativo. ETH se mueve {trend}, sin señales fuertes todavía."
                 ]
-                import random
                 send_message(random.choice(msg_options))
                 memory["last_status_report"] = now.isoformat()
                 save_memory(memory)
