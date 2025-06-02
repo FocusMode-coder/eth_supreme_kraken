@@ -1,2 +1,5 @@
 python-dotenv
 requests
+krakenex
+schedule
+python-telegram-bot

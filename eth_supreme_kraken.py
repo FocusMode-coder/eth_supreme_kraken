@@ -184,7 +184,7 @@ def get_balance(log_entries=None):
                     if "USDT" in k.upper():
                         usdt_balance = float(v)
                         break
-                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
+                eth_balance = float(raw.get("ETH", raw.get("XETH", 0)))
                 balance_msg += f"USDT: {usdt_balance:.2f}\nETH: {eth_balance:.5f}"
                 if log_entries is not None:
                     log_entries.append(balance_msg)
@@ -198,7 +198,7 @@ def get_balance(log_entries=None):
                     if "USDT" in k.upper():
                         usdt_balance = float(v)
                         break
-                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
+                eth_balance = float(raw.get("ETH", raw.get("XETH", 0)))
             return usdt_balance, eth_balance
         except Exception as e:
             err_msg = f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}"
@@ -546,23 +546,42 @@ def main():
                 # Fuerza una compra inicial apenas inicie el bot (solo una vez)
                 if not memory.get("initial_forced_buy_done", False):
                     current_price = get_price()  # asegurar que este valor esté actualizado
-                    usdt_balance, _ = get_balance(log_entries=log_entries)
+                    usdt_balance, eth_balance = get_balance(log_entries=log_entries)
 
-                    if usdt_balance >= min_trade_usdt:
-                        trade_qty = round(usdt_balance / current_price, 6)
-                        log_entries.append(f"🚨 Forzando compra inicial de {trade_qty} ETH...")
-                        res = place_order("BUY", trade_qty, log_entries=log_entries, validate=False)
-
-                        if res["error"]:
-                            log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
-                        else:
-                            log_entries.append("✅ Compra inicial forzada ejecutada correctamente.")
-
+                    # Nueva verificación: no forzar compra inicial si ya hay ETH suficiente
+                    if eth_balance > min_eth_amount:
+                        log_entries.append(f"✅ Ya tenés ETH ({eth_balance:.5f}), se omite compra inicial forzada.")
+                        memory["initial_forced_buy_done"] = True
+                        save_memory(memory)
                     else:
-                        log_entries.append("❌ Capital insuficiente para compra inicial forzada.")
+                        if usdt_balance >= min_trade_usdt:
+                            trade_qty = round(usdt_balance / current_price, 6)
+                            log_entries.append(f"🚨 Forzando compra inicial de {trade_qty} ETH...")
+                            res = place_order("BUY", trade_qty, log_entries=log_entries, validate=False)
 
-                    memory["initial_forced_buy_done"] = True
-                    save_memory(memory)
+                            # Nuevo bloque: registrar la compra inicial solo si fue exitosa
+                            if "error" not in res or not res["error"]:
+                                memory["last_action"] = "BUY"
+                                memory["last_action_reason"] = "Compra inicial forzada"
+                                memory.setdefault("trades", []).append({
+                                    "type": "BUY",
+                                    "price": current_price,
+                                    "quantity": trade_qty,
+                                    "time": datetime.now().isoformat()
+                                })
+                                save_memory(memory)
+                                report("BUY", current_price)
+
+                            if res["error"]:
+                                log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
+                            else:
+                                log_entries.append("✅ Compra inicial forzada ejecutada correctamente.")
+
+                        else:
+                            log_entries.append("❌ Capital insuficiente para compra inicial forzada.")
+
+                        memory["initial_forced_buy_done"] = True
+                        save_memory(memory)
 
                 # Enviar logs de errores o eventos críticos de Kraken inmediatamente
                 if log_entries:
