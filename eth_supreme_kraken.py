@@ -469,8 +469,8 @@ def main():
                     # Confirmación de tendencia: al menos dos condiciones fuertes
                     if len(strong_conditions) >= 2:
                         sniper_signal = True
-                    # Solo enviar log automático cada 2 horas
-                    if time.time() - last_status_log_time > 7200:
+                    # Solo enviar log automático cada 2 horas y solo si ya se hizo la compra inicial forzada
+                    if time.time() - last_status_log_time > 7200 and memory.get("initial_forced_buy_done"):
                         msg = (f"🔁 Estado del bot (Sniper)\n"
                                f"Precio: ${current_price:.2f}\n"
                                f"Cambio precio: {price_change:.2f}%\n"
@@ -508,8 +508,8 @@ def main():
                                 send_message(f"🚀 Señal fuerte de compra detectada: {', '.join(strong_conditions)}.\nComprado {buy_qty:.5f} ETH a ${current_price:.2f}.")
                                 last_status_log_time = time.time()
                     elif not sniper_signal:
-                        # Condiciones insuficientes: solo enviar si no se está operando y han pasado 2h desde último log
-                        if time.time() - last_status_log_time > 7200:
+                        # Condiciones insuficientes: solo enviar si no se está operando y han pasado 2h desde último log y ya se hizo compra inicial forzada
+                        if time.time() - last_status_log_time > 7200 and memory.get("initial_forced_buy_done") == True:
                             send_message("🤖 Sin acción: condiciones no óptimas para operar. Evaluando...")
                             last_status_log_time = time.time()
                 # --- Guardian Salida (venta) ---
@@ -542,6 +542,28 @@ def main():
                         report("SELL", current_price)
                         send_message(f"🚨 Señal fuerte de venta: condiciones Guardian alcanzadas.\nVendido {sell_qty:.5f} ETH a ${current_price:.2f}.")
                         last_status_log_time = time.time()
+
+                # Fuerza una compra mínima al iniciar el bot (solo una vez)
+                if not memory.get("initial_forced_buy_done") and usdt_balance >= min_trade_usdt:
+                    buy_qty = min(TRADE_QUANTITY, usdt_balance / current_price)
+                    res = place_order("BUY", buy_qty, log_entries=log_entries)
+                    if "error" not in res or not res["error"]:
+                        memory.setdefault("trades", []).append({
+                            "type": "BUY",
+                            "price": current_price,
+                            "quantity": buy_qty,
+                            "time": datetime.now().isoformat()
+                        })
+                        memory["last_action"] = "BUY"
+                        memory["initial_forced_buy_done"] = True
+                        save_memory(memory)
+                        report("BUY", current_price)
+                        send_message(f"🚀 Compra inicial forzada ejecutada: {buy_qty:.5f} ETH a ${current_price:.2f}")
+                    else:
+                        log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
+                        memory["initial_forced_buy_done"] = True
+                        save_memory(memory)
+
                 # Enviar logs de errores o eventos críticos de Kraken inmediatamente
                 if log_entries:
                     send_compact_log(log_entries)
