@@ -139,8 +139,8 @@ def get_balance():
             send_message(f"📊 Balance crudo: {json.dumps(raw)}")
             # Convertir todos los balances a float por seguridad
             balances = {k.upper(): float(v) for k, v in raw.items()}
-            usdt_balance = balances.get("USDT", balances.get("ZUSD", 0))
-            eth_balance = balances.get("ETH", balances.get("XETH", 0))
+            usdt_balance = balances.get("ZUSD", balances.get("USDT", 0))
+            eth_balance = balances.get("XETH", balances.get("ETH", 0))
             return usdt_balance, eth_balance
         except Exception as e:
             send_message(f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}")
