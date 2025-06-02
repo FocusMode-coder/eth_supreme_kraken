@@ -23,21 +23,37 @@ MEMORY_FILE = "eth_memory.json"
 MODE = os.getenv("MODE", "REAL")
 TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.01"))
 
+_last_telegram_msg = {"msg": None}
 def send_message(msg):
+    # Evitar mensajes idénticos repetidos
+    global _last_telegram_msg
     try:
+        if _last_telegram_msg["msg"] == msg:
+            return
         response = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             data={"chat_id": CHAT_ID, "text": msg}
         )
-        if not response.ok:
+        if response.ok:
+            _last_telegram_msg["msg"] = msg
+        else:
             print(f"[TELEGRAM ERROR] No se pudo enviar mensaje: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"[TELEGRAM EXCEPTION] {str(e)}")
+def log_info(msg):
+    # Log discreto, solo consola
+    print(f"[INFO] {msg}")
+
+# Función auxiliar para formatear logs de trade (orden de compra/venta simulada o real)
+def format_trade_log(order_type, amount, payload, response):
+    return f"""{order_type} ORDER (SIMULADA)
+Amount: {amount}
+Payload: {payload}
+Response: {response}"""
 
 # Nueva función para enviar logs compactados
 def send_compact_log(entries):
     # Agrupa los logs en un solo mensaje, evitando repeticiones excesivas.
-    # Limita la longitud para evitar saturar Telegram
     if not entries:
         return
     unique_entries = []
@@ -258,9 +274,8 @@ def place_order(side, quantity, log_entries=None):
         "validate": False
     }
     response = kraken_request("AddOrder", data, log_entries=log_entries)
-    order_msg = (
-        f"✅ Orden REAL enviada correctamente a Kraken.\n"
-        f"{side} ORDER\nAmount: {data['volume']}\nPayload: {json.dumps(data)}\nResponse: {json.dumps(response)}"
+    order_msg = f"✅ Orden REAL enviada correctamente a Kraken.\n" + format_trade_log(
+        side, data['volume'], json.dumps(data), json.dumps(response)
     )
     if log_entries is not None:
         log_entries.append(order_msg)
@@ -318,31 +333,22 @@ def main():
     memory = load_memory()
     memory.setdefault("last_balance_report", None)
     send_message("✅ ETH SUPREME BOT relanzado correctamente. Esperando balance y ejecutando chequeos iniciales...")
-    print("BOT relanzado correctamente, comenzando chequeo de balance...")
-    print("🔍 Verificando estado de conexión inicial...")
 
     # Verificación de claves esenciales
     if not API_KEY or not PRIVATE_KEY or not BASE_URL:
         send_message("❌ ERROR: Faltan claves esenciales de Kraken en el .env.")
-        print("❌ ERROR: Faltan claves esenciales de Kraken en el .env.")
-    else:
-        print("✅ Claves Kraken cargadas correctamente.")
+        return
 
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("❌ ERROR: Faltan claves de Telegram en el .env.")
         return
     else:
-        print("✅ Claves de Telegram cargadas correctamente.")
-
         send_message("ℹ️ Bot revisó las claves de entorno. Ver consola de Render para más info.")
         if "last_action" not in memory:
             memory["last_action"] = None
             save_memory(memory)
-        # Asegura que la clave last_lockout_warning exista y persiste
         memory.setdefault("last_lockout_warning", None)
         memory.setdefault("last_funds_warning", None)
         save_memory(memory)
-        # Mejorar mensaje de bienvenida: solo enviar si no ha sido reportado antes de 1 hora
         if not memory.get("last_action"):
             if not memory.get("last_connection_reported") or (datetime.now() - datetime.fromisoformat(memory.get("last_connection_reported", "1970-01-01T00:00:00"))).total_seconds() > 3600:
                 send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
@@ -350,7 +356,6 @@ def main():
                 save_memory(memory)
         last_notified_action = memory["last_action"]
 
-        # 🔥 MODO DIOS LEGENDARIO ACTIVADO
         def modo_dios_legandario(memory):
             now = datetime.now()
             last_trade_time = None
@@ -377,7 +382,6 @@ def main():
                         memory["last_idle_price"] = current_price
                         save_memory(memory)
 
-        # Parámetros clave para sniper y protección
         sniper_entry_price = float(os.getenv("SNIPER_ENTRY_PRICE", "2425"))
         sniper_exit_price = float(os.getenv("SNIPER_EXIT_PRICE", "2720"))
         min_trade_usdt = float(os.getenv("MIN_TRADE_USDT", "10"))
@@ -386,16 +390,30 @@ def main():
         log_entries = []
         last_log_time = time.time()
         last_full_message = None
+
+        # --- Sniper y Guardian logic helpers ---
+        def is_sniper_entry(price_data, volume_data):
+            recent_gain = price_data[-1] - price_data[-5]  # cambio en 5 ticks
+            volume_spike = volume_data[-1] > sum(volume_data[-5:-1]) / 4
+            price_breakout = price_data[-1] > max(price_data[-10:-1])
+            return recent_gain > 0.5 and volume_spike and price_breakout
+
+        def should_exit_trade(entry_price, current_price):
+            gain = current_price - entry_price
+            return gain >= 2 or gain <= -1  # toma ganancia o corta pérdida
+
+        # --- Main loop ---
+        prices = []
+        volumes = []
+        price_history_length = 15
         while True:
             try:
-                # Cooldown entre ciclos: 120-150 segundos
                 time.sleep(120 + random.randint(0, 30))
                 modo_dios_legandario(memory)
-                # 🧠 Reporte inteligente de actividad del bot cada 2 horas
                 now = datetime.now()
                 last_status = memory.get("last_status_report")
+                current_price = get_price()
                 if not last_status or (now - datetime.fromisoformat(last_status)).total_seconds() > 7200:
-                    current_price = get_price()
                     trend = "📈 al alza" if current_price > memory.get("last_idle_price", current_price) else "📉 a la baja"
                     if memory.get("last_action") != "BUY" and memory.get("last_action") != "SELL":
                         msg_options = [
@@ -407,11 +425,8 @@ def main():
                     memory["last_status_report"] = now.isoformat()
                     save_memory(memory)
                 handle_command()
-                # --- BLOQUE PRINCIPAL DE ANÁLISIS DE PRECIO Y DECISIONES ---
                 usdt_balance, eth_balance = get_balance(log_entries=log_entries)
                 current_price = get_price()
-                print(f"[INFO] Balance actual → USDT: ${usdt_balance:.2f}, ETH: {eth_balance:.6f}")
-                print(f"[INFO] Precio ETH actual: ${current_price:.2f}")
                 if current_price == 0:
                     log_entries.append("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
                     if log_entries:
@@ -420,81 +435,26 @@ def main():
                     time.sleep(60)
                     continue
 
-                # Obtener last_buy_price para protección
-                trades = memory.get("trades", [])
-                last_buy_price = None
-                if trades:
-                    last_buy = next((t for t in reversed(trades) if t["type"] == "BUY"), None)
-                    if last_buy:
-                        last_buy_price = last_buy["price"]
-                # Protección contra pérdidas: vender si cae 2.5% desde la última compra
-                if last_buy_price is not None:
-                    if current_price <= last_buy_price * 0.975 and eth_balance >= min_eth_amount:
-                        # lógica de venta defensiva
-                        if memory.get("last_action") != "SELL":
-                            res = place_order("SELL", eth_balance if eth_balance < TRADE_QUANTITY else TRADE_QUANTITY, log_entries=log_entries)
-                            if "error" in res and res["error"]:
-                                log_entries.append(f"⚠️ Error en venta defensiva: {res['error']}")
-                            else:
-                                memory.setdefault("trades", []).append({
-                                    "type": "SELL",
-                                    "price": current_price,
-                                    "quantity": eth_balance if eth_balance < TRADE_QUANTITY else TRADE_QUANTITY,
-                                    "time": datetime.now().isoformat()
-                                })
-                                memory["last_action"] = "SELL"
-                                save_memory(memory)
-                                report("SELL", current_price)
+                # --- Price & volume history for Sniper logic ---
+                try:
+                    res = requests.get(f"https://api.kraken.com/0/public/Ticker?pair={PAIR}").json()
+                    ticker = res["result"][PAIR]
+                    price_tick = float(ticker["c"][0])
+                    volume_tick = float(ticker["v"][1])
+                except Exception:
+                    price_tick = current_price
+                    volume_tick = 0
+                prices.append(price_tick)
+                volumes.append(volume_tick)
+                if len(prices) > price_history_length:
+                    prices = prices[-price_history_length:]
+                    volumes = volumes[-price_history_length:]
 
-                # --- Análisis Sniper + Guardian para entrada inteligente ---
-                def get_kraken_ticker():
-                    try:
-                        res = requests.get(f"https://api.kraken.com/0/public/Ticker?pair={PAIR}").json()
-                        ticker = res["result"][PAIR]
-                        # price: last trade close, volume: today, price_change_percent: 1h change
-                        last_price = float(ticker["c"][0])
-                        vol = float(ticker["v"][1])
-                        # Calcular cambio porcentaje última hora (si disponible)
-                        # Kraken no da cambio 1h directo, así que estimamos con precios históricos si fuera necesario
-                        # Pero aquí solo usamos el cambio diario como aproximación
-                        open_price = float(ticker.get("o", last_price))
-                        price_change_percent = ((last_price - open_price) / open_price) * 100 if open_price else 0.0
-                        return {
-                            "price": last_price,
-                            "volume": vol,
-                            "price_change_percent": price_change_percent
-                        }
-                    except Exception as e:
-                        print(f"[ERROR] get_kraken_ticker: {str(e)}")
-                        return {"price": current_price, "volume": 0, "price_change_percent": 0}
-
-                def should_enter_trade(ticker_data):
-                    # Análisis Sniper + Guardian
-                    current_price = float(ticker_data["price"])
-                    volume = float(ticker_data["volume"])
-                    price_change = float(ticker_data["price_change_percent"])
-                    direction_confirmed = price_change > 1.0 and volume > 500  # parámetros ajustables
-
-                    if direction_confirmed:
-                        print(f"[SNIPER] Entry confirmed at ${current_price}")
-                        return True
-                    else:
-                        print(f"[GUARDIAN] Entry denied at ${current_price} (vol={volume}, change={price_change}%)")
-                        return False
-
-                # Actualizar ticker_data en tiempo real antes del análisis
-                ticker_data = get_kraken_ticker()
-                # Protección: evitar entrar si el precio cae más de 1% en la última hora
-                if ticker_data["price_change_percent"] < -1.0:
-                    print("[ALERTA] El mercado está cayendo con fuerza. Entrada abortada.")
-                    if memory.get("last_alert_time") is None or (datetime.now() - datetime.fromisoformat(memory.get("last_alert_time"))).total_seconds() > 3600:
-                        log_entries.append("[ALERTA] El mercado está cayendo con fuerza. Entrada abortada.")
-                        memory["last_alert_time"] = datetime.now().isoformat()
-                        save_memory(memory)
-                elif current_price <= sniper_entry_price and usdt_balance >= min_trade_usdt:
-                    if memory.get("last_action") != "BUY":
-                        # Solo proceder si el análisis Sniper+Guardian lo permite
-                        if should_enter_trade(ticker_data):
+                # --- Sniper Entrada (compra) ---
+                if len(prices) >= 10 and len(volumes) >= 5:
+                    log_info("⏳ Análisis Sniper en progreso...")
+                    if is_sniper_entry(prices, volumes):
+                        if memory.get("last_action") != "BUY" and usdt_balance >= min_trade_usdt:
                             buy_qty = TRADE_QUANTITY
                             max_qty = usdt_balance / current_price
                             if buy_qty > max_qty:
@@ -510,53 +470,53 @@ def main():
                                     "time": datetime.now().isoformat()
                                 })
                                 memory["last_action"] = "BUY"
+                                memory["last_action_reason"] = "Sniper entry por breakout y volumen"
                                 save_memory(memory)
                                 report("BUY", current_price)
 
-                # Venta sniper con toma de ganancia
-                if current_price >= sniper_exit_price and eth_balance >= min_eth_amount:
-                    if memory.get("last_action") != "SELL":
-                        # lógica de venta con toma de ganancia
-                        sell_qty = eth_balance if eth_balance < TRADE_QUANTITY else TRADE_QUANTITY
-                        res = place_order("SELL", sell_qty, log_entries=log_entries)
-                        if "error" in res and res["error"]:
-                            log_entries.append(f"⚠️ Error en venta sniper: {res['error']}")
-                        else:
-                            memory.setdefault("trades", []).append({
-                                "type": "SELL",
-                                "price": current_price,
-                                "quantity": sell_qty,
-                                "time": datetime.now().isoformat()
-                            })
-                            memory["last_action"] = "SELL"
-                            save_memory(memory)
-                            report("SELL", current_price)
+                # --- Guardian Salida (venta) ---
+                trades = memory.get("trades", [])
+                entry_price = None
+                if trades:
+                    last_buy = next((t for t in reversed(trades) if t["type"] == "BUY"), None)
+                    if last_buy:
+                        entry_price = last_buy["price"]
+                if entry_price is not None and eth_balance >= min_eth_amount:
+                    if should_exit_trade(entry_price, current_price):
+                        if memory.get("last_action") != "SELL":
+                            log_info("⏳ Análisis Guardian en progreso...")
+                            sell_qty = eth_balance if eth_balance < TRADE_QUANTITY else TRADE_QUANTITY
+                            res = place_order("SELL", sell_qty, log_entries=log_entries)
+                            if "error" in res and res["error"]:
+                                log_entries.append(f"⚠️ Error en venta guardian: {res['error']}")
+                            else:
+                                memory.setdefault("trades", []).append({
+                                    "type": "SELL",
+                                    "price": current_price,
+                                    "quantity": sell_qty,
+                                    "time": datetime.now().isoformat()
+                                })
+                                memory["last_action"] = "SELL"
+                                save_memory(memory)
+                                report("SELL", current_price)
 
-                # --- FIN BLOQUE PRINCIPAL DE ANÁLISIS ---
-
-                # Compactar logs de Telegram y reporte de estado al final del ciclo principal
-                percent_change = 0.0
-                if last_buy_price:
-                    percent_change = ((current_price - last_buy_price) / last_buy_price) * 100
-                full_message = f"""
-🧠 ETH Price: ${current_price}
-💰 USDT: {usdt_balance} | ETH: {eth_balance}
-📈 Last Buy: ${last_buy_price if last_buy_price else 'N/A'} | P/L: {percent_change:.2f}%
-"""
-                # Enviar solo si el mensaje relevante cambió
-                if full_message != last_full_message:
-                    send_telegram_message = send_message  # alias for clarity
-                    send_telegram_message(full_message)
-                    last_full_message = full_message
-
-                # Compactar logs de Telegram si hay entradas
                 if log_entries and (time.time() - last_log_time > 90):
                     send_compact_log(log_entries)
                     log_entries.clear()
                     last_log_time = time.time()
+
+                if time.time() - last_log_time > 7200:
+                    reason = memory.get("last_action_reason", "Analizando condiciones del mercado.")
+                    summary_msg = f"""🧠 Estado: HOLD
+ETH actual: ${current_price}
+Última compra: {entry_price if entry_price else 'N/A'}
+Señal actual: {reason}"""
+                    send_message(summary_msg)
+                    memory["last_status_report"] = datetime.now().isoformat()
+                    save_memory(memory)
+                    last_log_time = time.time()
             except Exception as e:
                 import traceback
-                print(f"[ERROR] {str(e)}")
                 log_entries.append(f"⚠️ Luciano, algo salió mal: {str(e)}\n{traceback.format_exc()}")
                 if log_entries:
                     send_compact_log(log_entries)
@@ -564,7 +524,6 @@ def main():
                 last_log_time = time.time()
 
 
-# Llamada a main() si el script es ejecutado directamente
 if __name__ == "__main__":
     send_message("🔍 Iniciando test de claves Kraken...")
     log_entries = []
@@ -573,5 +532,4 @@ if __name__ == "__main__":
     if log_entries:
         send_compact_log(log_entries)
         log_entries.clear()
-    # Continuar ejecución normal...
     main()
