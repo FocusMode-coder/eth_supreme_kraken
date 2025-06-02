@@ -132,16 +132,17 @@ def kraken_request(endpoint, data):
 def get_balance():
     time.sleep(3)
     res = kraken_request("Balance", {})
-    if res:
+    if res and "result" in res:
         try:
-            usdt_balance = float(res.get("USDT") or res.get("ZUSD") or 0)
-            eth_balance = float(res.get("XETH") or 0)
+            raw = res["result"]
+            usdt_balance = float(raw.get("USDT") or raw.get("ZUSD") or 0)
+            eth_balance = float(raw.get("XETH") or raw.get("ETH") or 0)
             return usdt_balance, eth_balance
         except Exception as e:
             send_message(f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}")
             return 0, 0
     else:
-        send_message("❌ Error de Kraken: respuesta vacía al pedir balances.")
+        send_message("❌ Error de Kraken: respuesta vacía o sin 'result' al pedir balances.")
         return 0, 0
 
 def get_price():
