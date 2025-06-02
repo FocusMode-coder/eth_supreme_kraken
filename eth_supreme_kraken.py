@@ -17,7 +17,7 @@ PRIVATE_KEY = "p/3THTJpykhJpVXa2EA3ofg6802Inu9ry/secnKTunfVzvKtINkcGKaznetgf40hp
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7613460488")
-PAIR = "XETHZUSD"
+PAIR = "ETHUSDT"
 LOG_FILE = os.getenv("LOG_FILE", "kraken_log.txt")
 MEMORY_FILE = "eth_memory.json"
 MODE = os.getenv("MODE", "REAL")
@@ -268,7 +268,7 @@ def place_order(side, quantity, log_entries=None):
     # Ejecutar orden real
     nonce = str(int(1000 * time.time()))
     data = {
-        "pair": "XETHZUSD",
+        "pair": "ETHUSDT",
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
         "volume": f"{quantity:.6f}",
@@ -543,26 +543,26 @@ def main():
                         send_message(f"🚨 Señal fuerte de venta: condiciones Guardian alcanzadas.\nVendido {sell_qty:.5f} ETH a ${current_price:.2f}.")
                         last_status_log_time = time.time()
 
-                # Fuerza una compra mínima al iniciar el bot (solo una vez)
-                if not memory.get("initial_forced_buy_done") and usdt_balance >= min_trade_usdt:
-                    buy_qty = min(TRADE_QUANTITY, usdt_balance / current_price)
-                    res = place_order("BUY", buy_qty, log_entries=log_entries)
-                    if "error" not in res or not res["error"]:
-                        memory.setdefault("trades", []).append({
-                            "type": "BUY",
-                            "price": current_price,
-                            "quantity": buy_qty,
-                            "time": datetime.now().isoformat()
-                        })
-                        memory["last_action"] = "BUY"
-                        memory["initial_forced_buy_done"] = True
-                        save_memory(memory)
-                        report("BUY", current_price)
-                        send_message(f"🚀 Compra inicial forzada ejecutada: {buy_qty:.5f} ETH a ${current_price:.2f}")
+                # Fuerza una compra inicial apenas inicie el bot (solo una vez)
+                if not memory.get("initial_forced_buy_done", False):
+                    current_price = get_price()  # asegurar que este valor esté actualizado
+                    usdt_balance, _ = get_balance(log_entries=log_entries)
+
+                    if usdt_balance >= min_trade_usdt:
+                        trade_qty = round(usdt_balance / current_price, 6)
+                        log_entries.append(f"🚨 Forzando compra inicial de {trade_qty} ETH...")
+                        res = place_order("buy", trade_qty, test=False)
+
+                        if res["error"]:
+                            log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
+                        else:
+                            log_entries.append("✅ Compra inicial forzada ejecutada correctamente.")
+
                     else:
-                        log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
-                        memory["initial_forced_buy_done"] = True
-                        save_memory(memory)
+                        log_entries.append("❌ Capital insuficiente para compra inicial forzada.")
+
+                    memory["initial_forced_buy_done"] = True
+                    save_memory(memory)
 
                 # Enviar logs de errores o eventos críticos de Kraken inmediatamente
                 if log_entries:
