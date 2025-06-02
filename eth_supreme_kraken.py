@@ -34,6 +34,11 @@ def send_message(msg):
     except Exception as e:
         print(f"[TELEGRAM EXCEPTION] {str(e)}")
 
+# Nueva función para enviar logs compactados
+def send_compact_log(entries):
+    message = "\n\n".join(entries)
+    send_message(message)
+
 def handle_command():
     try:
         offset_file = "telegram_offset.txt"
@@ -102,7 +107,7 @@ def handle_command():
     except Exception as e:
         send_message(f"❌ Error al procesar comandos de Telegram: {str(e)}")
 
-def kraken_request(endpoint, data):
+def kraken_request(endpoint, data, log_entries=None):
     try:
         url_path = f"/0/private/{endpoint}"
         url = f"{BASE_URL}{url_path}"
@@ -119,36 +124,64 @@ def kraken_request(endpoint, data):
         }
         res = requests.post(url, headers=headers, data=data)
         response_json = res.json()
-        
-        # DEBUG: Telegram log si hay error
+        # Registrar errores en log_entries si se provee
         if response_json.get("error"):
-            send_message(f"[❌ Kraken Error {endpoint}] {response_json['error']}")
-        
+            if log_entries is not None:
+                log_entries.append(f"[❌ Kraken Error {endpoint}] {response_json['error']}")
+            else:
+                send_message(f"[❌ Kraken Error {endpoint}] {response_json['error']}")
         return response_json
     except Exception as e:
-        send_message(f"[🔥 Exception in kraken_request] {str(e)}")
+        if log_entries is not None:
+            log_entries.append(f"[🔥 Exception in kraken_request] {str(e)}")
+        else:
+            send_message(f"[🔥 Exception in kraken_request] {str(e)}")
         return {}
 
-def get_balance():
+def get_balance(log_entries=None):
     time.sleep(3)
-    res = kraken_request("Balance", {})
+    res = kraken_request("Balance", {}, log_entries=log_entries)
     if res and "result" in res:
         try:
             raw = res["result"]
-            send_message(f"📊 Balance crudo: {json.dumps(raw)}")
-            usdt_balance = 0
-            # Fix: detectar claves comunes de Kraken, solo buscar claves con 'USDT'
-            for k, v in raw.items():
-                if "USDT" in k.upper():
-                    usdt_balance = float(v)
-                    break
-            eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
+            memory = load_memory()
+            # Report only if changed
+            if memory.get("last_balance_report") != raw:
+                balance_msg = f"BALANCE CHECK\n"
+                usdt_balance = 0
+                for k, v in raw.items():
+                    if "USDT" in k.upper():
+                        usdt_balance = float(v)
+                        break
+                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
+                balance_msg += f"USDT: {usdt_balance:.2f}\nETH: {eth_balance:.5f}"
+                if log_entries is not None:
+                    log_entries.append(balance_msg)
+                else:
+                    send_message(balance_msg)
+                memory["last_balance_report"] = raw
+                save_memory(memory)
+            else:
+                usdt_balance = 0
+                for k, v in raw.items():
+                    if "USDT" in k.upper():
+                        usdt_balance = float(v)
+                        break
+                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
             return usdt_balance, eth_balance
         except Exception as e:
-            send_message(f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}")
+            err_msg = f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}"
+            if log_entries is not None:
+                log_entries.append(err_msg)
+            else:
+                send_message(err_msg)
             return 0, 0
     else:
-        send_message("❌ Error de Kraken: respuesta vacía o sin 'result' al pedir balances.")
+        err_msg = "❌ Error de Kraken: respuesta vacía o sin 'result' al pedir balances."
+        if log_entries is not None:
+            log_entries.append(err_msg)
+        else:
+            send_message(err_msg)
         return 0, 0
 
 def get_price():
@@ -195,21 +228,27 @@ def save_memory(data):
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def place_order(side, quantity):
+def place_order(side, quantity, log_entries=None):
     if MODE != "REAL":
+        sim_msg = f"SIMULATED ORDER {side}\nAmount: {quantity}"
+        if log_entries is not None:
+            log_entries.append(sim_msg)
+        else:
+            send_message(sim_msg)
         return {"simulated": True, "side": side}
     data = {
         "pair": "XETHZUSD",
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
-        # "volume": quantity  # will be set below as string
     }
     volume_str = f"{quantity:.6f}"
     data["volume"] = volume_str
-    send_message(f"📤 Enviando orden {side} con cantidad: {volume_str}")
-    response = kraken_request("AddOrder", data)
-    send_message(f"📦 Payload enviado: {json.dumps(data)}")
-    send_message(f"📨 Respuesta Kraken: {json.dumps(response)}")
+    response = kraken_request("AddOrder", data, log_entries=log_entries)
+    order_msg = f"{side} ORDER\nAmount: {volume_str}\nPayload: {json.dumps(data)}\nResponse: {json.dumps(response)}"
+    if log_entries is not None:
+        log_entries.append(order_msg)
+    else:
+        send_message(order_msg)
     return response
 
 def decision(price, usdt, eth, memory):
@@ -252,6 +291,7 @@ def report(trade_type, price):
 def main():
     send_message("🟢 Test directo: el bot Kraken está vivo y conectado.")
     memory = load_memory()
+    memory.setdefault("last_balance_report", None)
     send_message("✅ ETH SUPREME BOT relanzado correctamente. Esperando balance y ejecutando chequeos iniciales...")
     print("BOT relanzado correctamente, comenzando chequeo de balance...")
     print("🔍 Verificando estado de conexión inicial...")
@@ -285,24 +325,25 @@ def main():
                 save_memory(memory)
         # --- Orden de compra inicial de test por $10 USD ---
         try:
-            usdt, eth = get_balance()
+            log_entries = []
+            usdt, eth = get_balance(log_entries=log_entries)
             price = get_price()
             now = datetime.now()
             if price == 0:
-                send_message("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
+                log_entries.append("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
             elif usdt < 10:
                 last_warning = memory.get("last_funds_warning")
                 if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
-                    send_message(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
+                    log_entries.append(f"⚠️ Fondos insuficientes para la orden de test. Se requieren al menos $10 USDT. Balance actual: ${usdt:.2f}")
                     memory["last_funds_warning"] = now.isoformat()
                     save_memory(memory)
             else:
                 quantity = round(10 / price, 6)
                 if quantity < 0.001:
                     quantity = 0.001  # Forzar mínimo según reglas Kraken
-                res = place_order("BUY", quantity)
+                res = place_order("BUY", quantity, log_entries=log_entries)
                 if "error" in res and res["error"]:
-                    send_message(f"⚠️ Error al ejecutar la orden de test: {res['error']}")
+                    log_entries.append(f"⚠️ Error al ejecutar la orden de test: {res['error']}")
                 else:
                     memory.setdefault("trades", []).append({
                         "type": "BUY",
@@ -313,16 +354,16 @@ def main():
                     memory["last_action"] = "BUY"
                     save_memory(memory)
                     report("BUY", price)
-                    usdt_post, eth_post = get_balance()
-                    send_message(f"✅ Orden de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
+                    usdt_post, eth_post = get_balance(log_entries=log_entries)
+                    log_entries.append(f"✅ Orden de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
 
                     time.sleep(5)  # Pausa breve antes de vender
 
                     # Orden de venta de test inmediatamente después de la compra
                     price = get_price()
-                    res_sell = place_order("SELL", quantity)
+                    res_sell = place_order("SELL", quantity, log_entries=log_entries)
                     if "error" in res_sell and res_sell["error"]:
-                        send_message(f"⚠️ Error al ejecutar la orden de venta de test: {res_sell['error']}")
+                        log_entries.append(f"⚠️ Error al ejecutar la orden de venta de test: {res_sell['error']}")
                     else:
                         memory.setdefault("trades", []).append({
                             "type": "SELL",
@@ -333,9 +374,12 @@ def main():
                         memory["last_action"] = "SELL"
                         save_memory(memory)
                     report("SELL", price)
-                    usdt_post, eth_post = get_balance()
-                    send_message(f"✅ Venta de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
-                    send_message("✅ Test buy done.\nLuciano, ya ejecuté la orden en Kraken: compré y vendí como prueba. Relajate, que me encargo yo desde acá. 🚀")
+                    usdt_post, eth_post = get_balance(log_entries=log_entries)
+                    log_entries.append(f"✅ Venta de test completada.\nBalance nuevo:\nUSDT: ${usdt_post:.2f}\nETH: {eth_post:.6f}")
+                    log_entries.append("✅ Test buy done.\nLuciano, ya ejecuté la orden en Kraken: compré y vendí como prueba. Relajate, que me encargo yo desde acá. 🚀")
+            if log_entries:
+                send_compact_log(log_entries)
+                log_entries.clear()
         except Exception as e:
             send_message(f"❌ Error durante ejecución de orden de test inicial: {str(e)}")
         last_notified_action = memory["last_action"]
@@ -369,8 +413,14 @@ def main():
                         memory["last_idle_price"] = current_price
                         save_memory(memory)
 
+        # Compact logging variables
+        log_entries = []
+        last_log_time = time.time()
+        last_balance_snapshot = None
+        last_balance_sent = ""
+        last_compact_log = ""
         while True:
-            time.sleep(60 + random.randint(0, 5))  # Espera mínima para evitar sobrecarga de Kraken API
+            time.sleep(120 + random.randint(0, 30))  # Espera mínima para evitar sobrecarga de Kraken API
             modo_dios_legandario(memory)
             # 🧠 Reporte inteligente de actividad del bot cada 30 minutos
             now = datetime.now()
@@ -388,12 +438,16 @@ def main():
                 save_memory(memory)
             handle_command()
             try:
-                usdt, eth = get_balance()
+                # Compact log para balance y acciones
+                usdt, eth = get_balance(log_entries=log_entries)
                 print(f"[INFO] Balance actual → USDT: ${usdt:.2f}, ETH: {eth:.6f}")
                 price = get_price()
                 print(f"[INFO] Precio ETH actual: ${price:.2f}")
                 if price == 0:
-                    send_message("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
+                    log_entries.append("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
+                    if log_entries:
+                        send_compact_log(log_entries)
+                        log_entries.clear()
                     time.sleep(60)
                     continue
                 # --- Idle notification block ---
@@ -402,7 +456,7 @@ def main():
                     elapsed = (datetime.now() - last_trade_time).total_seconds() / 60
                     idle_minutes = 30
                     if elapsed > idle_minutes:
-                        send_message(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
+                        log_entries.append(f"⏳ Luciano, hace {int(elapsed)} minutos que no opero. ETH está en ${price:.2f}")
                 # --- End idle notification block ---
 
                 action = decision(price, usdt, eth, memory)
@@ -412,9 +466,9 @@ def main():
                     if action == last_notified_action:
                         pass  # no repetir mensaje si es igual a la anterior
                     else:
-                        res = place_order(action, TRADE_QUANTITY)
+                        res = place_order(action, TRADE_QUANTITY, log_entries=log_entries)
                         if "error" in res and res["error"]:
-                            send_message(f"⚠️ Luciano, error al ejecutar {action}: {res['error']}")
+                            log_entries.append(f"⚠️ Luciano, error al ejecutar {action}: {res['error']}")
                         else:
                             memory.setdefault("trades", []).append({
                                 "type": action,
@@ -427,15 +481,28 @@ def main():
                             save_memory(memory)
                             report(action, price)
 
+                # Enviar log compacto cada 60 segundos si hay cambios
+                if log_entries and (time.time() - last_log_time > 60):
+                    send_compact_log(log_entries)
+                    log_entries.clear()
+                    last_log_time = time.time()
             except Exception as e:
                 print(f"[ERROR] {str(e)}")
-                send_message(f"⚠️ Luciano, algo salió mal: {str(e)}")
+                log_entries.append(f"⚠️ Luciano, algo salió mal: {str(e)}")
+                if log_entries:
+                    send_compact_log(log_entries)
+                    log_entries.clear()
+                last_log_time = time.time()
 
 
 # Llamada a main() si el script es ejecutado directamente
 if __name__ == "__main__":
     send_message("🔍 Iniciando test de claves Kraken...")
-    balance_test = kraken_request("Balance", {})
-    send_message(f"📊 Resultado balance test: {json.dumps(balance_test)}")
+    log_entries = []
+    balance_test = kraken_request("Balance", {}, log_entries=log_entries)
+    log_entries.append(f"📊 Resultado balance test: {json.dumps(balance_test)}")
+    if log_entries:
+        send_compact_log(log_entries)
+        log_entries.clear()
     # Continuar ejecución normal...
     main()
