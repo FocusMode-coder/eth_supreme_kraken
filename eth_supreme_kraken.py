@@ -103,17 +103,31 @@ def handle_command():
         send_message(f"❌ Error al procesar comandos de Telegram: {str(e)}")
 
 def kraken_request(endpoint, data):
-    url_path = f"/0/private/{endpoint}"
-    url = BASE_URL + url_path
-    nonce = str(int(1000 * time.time()))
-    data["nonce"] = nonce
-    post_data = urllib.parse.urlencode(data)
-    encoded = (nonce + post_data).encode()
-    message = url_path.encode() + hashlib.sha256(encoded).digest()
-    mac = hmac.new(base64.b64decode(PRIVATE_KEY), message, hashlib.sha512)
-    sigdigest = base64.b64encode(mac.digest())
-    headers = {"API-Key": API_KEY, "API-Sign": sigdigest.decode()}
-    return requests.post(url, headers=headers, data=data).json()
+    try:
+        url_path = f"/0/private/{endpoint}"
+        url = f"{BASE_URL}{url_path}"
+        nonce = str(int(1000 * time.time()))
+        data["nonce"] = nonce
+        post_data = urllib.parse.urlencode(data)
+        encoded = (nonce + post_data).encode()
+        message = url_path.encode() + hashlib.sha256(encoded).digest()
+        signature = hmac.new(base64.b64decode(PRIVATE_KEY), message, hashlib.sha512)
+        sig_digest = base64.b64encode(signature.digest())
+        headers = {
+            "API-Key": API_KEY,
+            "API-Sign": sig_digest.decode()
+        }
+        res = requests.post(url, headers=headers, data=data)
+        response_json = res.json()
+        
+        # DEBUG: Telegram log si hay error
+        if response_json.get("error"):
+            send_message(f"[❌ Kraken Error {endpoint}] {response_json['error']}")
+        
+        return response_json.get("result", {})
+    except Exception as e:
+        send_message(f"[🔥 Exception in kraken_request] {str(e)}")
+        return {}
 
 def get_balance():
     time.sleep(3)
@@ -414,4 +428,8 @@ def main():
 
 # Llamada a main() si el script es ejecutado directamente
 if __name__ == "__main__":
+    send_message("🔍 Iniciando test de claves Kraken...")
+    balance_test = kraken_request("Balance", {})
+    send_message(f"📊 Resultado balance test: {json.dumps(balance_test)}")
+    # Continuar ejecución normal...
     main()
