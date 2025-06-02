@@ -154,6 +154,9 @@ def get_balance(log_entries=None):
                         usdt_balance = float(v)
                         break
                 eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
+                # Forzar lectura directa de ZEUR, ZUSD, o balances anidados si fuera necesario
+                # (agregada línea requerida)
+                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
                 balance_msg += f"USDT: {usdt_balance:.2f}\nETH: {eth_balance:.5f}"
                 if log_entries is not None:
                     log_entries.append(balance_msg)
@@ -167,6 +170,7 @@ def get_balance(log_entries=None):
                     if "USDT" in k.upper():
                         usdt_balance = float(v)
                         break
+                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
                 eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
             return usdt_balance, eth_balance
         except Exception as e:
@@ -186,9 +190,10 @@ def get_balance(log_entries=None):
 
 def get_price():
     try:
-        res = requests.get("https://api.kraken.com/0/public/Ticker?pair=ETHUSD").json()
-        return float(res["result"][PAIR]["c"][0])
-    except:
+        res = requests.get("https://api.kraken.com/0/public/Ticker?pair=XETHZUSD").json()
+        return float(res["result"]["XETHZUSD"]["c"][0])
+    except Exception as e:
+        print(f"[ERROR] No se pudo obtener el precio ETH: {str(e)}")
         return 0
 
 def load_memory():
@@ -330,7 +335,10 @@ def main():
             price = get_price()
             now = datetime.now()
             if price == 0:
-                log_entries.append("⚠️ Error inicial: No se pudo obtener el precio actual. Cancelando orden de test.")
+                time.sleep(3)
+                price = get_price()
+            if price == 0:
+                log_entries.append("⚠️ Error inicial: No se pudo obtener el precio actual tras dos intentos. Cancelando orden de test.")
             elif usdt < 10:
                 last_warning = memory.get("last_funds_warning")
                 if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
