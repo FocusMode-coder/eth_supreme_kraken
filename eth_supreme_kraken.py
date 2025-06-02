@@ -135,8 +135,12 @@ def get_balance():
     if res and "result" in res:
         try:
             raw = res["result"]
-            usdt_balance = float(raw.get("USDT") or raw.get("ZUSD") or 0)
-            eth_balance = float(raw.get("XETH") or raw.get("ETH") or 0)
+            # DEBUG: log crudo para ver si los keys están bien
+            send_message(f"📊 Balance crudo: {json.dumps(raw)}")
+            # Convertir todos los balances a float por seguridad
+            balances = {k.upper(): float(v) for k, v in raw.items()}
+            usdt_balance = balances.get("USDT", balances.get("ZUSD", 0))
+            eth_balance = balances.get("ETH", balances.get("XETH", 0))
             return usdt_balance, eth_balance
         except Exception as e:
             send_message(f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}")
