@@ -139,7 +139,7 @@ def get_balance():
             send_message(f"📊 Balance crudo: {json.dumps(raw)}")
             # Convertir todos los balances a float por seguridad
             balances = {k.upper(): float(v) for k, v in raw.items()}
-            usdt_balance = balances.get("ZUSD", balances.get("USDT", 0))
+            usdt_balance = next((float(v) for k, v in raw.items() if "USDT" in k.upper()), 0)
             eth_balance = balances.get("XETH", balances.get("ETH", 0))
             return usdt_balance, eth_balance
         except Exception as e:
@@ -202,6 +202,7 @@ def place_order(side, quantity):
         "ordertype": "market",
         "volume": quantity
     }
+    send_message(f"📤 Enviando orden {side} con cantidad: {quantity}")
     return kraken_request("AddOrder", data)
 
 def decision(price, usdt, eth, memory):
