@@ -17,7 +17,7 @@ PRIVATE_KEY = "p/3THTJpykhJpVXa2EA3ofg6802Inu9ry/secnKTunfVzvKtINkcGKaznetgf40hp
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7613460488")
-PAIR = "XETHUSDT"
+PAIR = "XETHZUSD"
 LOG_FILE = os.getenv("LOG_FILE", "kraken_log.txt")
 MEMORY_FILE = "eth_memory.json"
 MODE = os.getenv("MODE", "REAL")
@@ -36,8 +36,22 @@ def send_message(msg):
 
 # Nueva función para enviar logs compactados
 def send_compact_log(entries):
-    message = "\n\n".join(entries)
-    send_message(message)
+    # Agrupa los logs en un solo mensaje, evitando repeticiones excesivas.
+    # Limita la longitud para evitar saturar Telegram
+    if not entries:
+        return
+    unique_entries = []
+    seen = set()
+    for entry in entries:
+        if entry not in seen:
+            unique_entries.append(entry)
+            seen.add(entry)
+    message = "\n\n".join(unique_entries)
+    # Telegram limita mensajes a 4096 caracteres
+    if len(message) > 4000:
+        send_message(message[:4000] + "\n...(truncado)")
+    else:
+        send_message(message)
 
 def handle_command():
     try:
@@ -125,7 +139,7 @@ def kraken_request(endpoint, data, log_entries=None):
         res = requests.post(url, headers=headers, data=data)
         response_json = res.json()
         # Registrar errores en log_entries si se provee
-        if response_json.get("error"):
+        if response_json.get("error") and response_json["error"]:
             if log_entries is not None:
                 log_entries.append(f"[❌ Kraken Error {endpoint}] {response_json['error']}")
             else:
@@ -139,6 +153,7 @@ def kraken_request(endpoint, data, log_entries=None):
         return {}
 
 def get_balance(log_entries=None):
+    # Solo una llamada a get_balance por ciclo, evitar repeticiones innecesarias
     time.sleep(3)
     res = kraken_request("Balance", {}, log_entries=log_entries)
     if res and "result" in res:
@@ -154,9 +169,6 @@ def get_balance(log_entries=None):
                         usdt_balance = float(v)
                         break
                 eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
-                # Forzar lectura directa de ZEUR, ZUSD, o balances anidados si fuera necesario
-                # (agregada línea requerida)
-                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
                 balance_msg += f"USDT: {usdt_balance:.2f}\nETH: {eth_balance:.5f}"
                 if log_entries is not None:
                     log_entries.append(balance_msg)
@@ -170,7 +182,6 @@ def get_balance(log_entries=None):
                     if "USDT" in k.upper():
                         usdt_balance = float(v)
                         break
-                eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
                 eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
             return usdt_balance, eth_balance
         except Exception as e:
@@ -190,8 +201,8 @@ def get_balance(log_entries=None):
 
 def get_price():
     try:
-        res = requests.get("https://api.kraken.com/0/public/Ticker?pair=XETHZUSD").json()
-        return float(res["result"]["XETHZUSD"]["c"][0])
+        res = requests.get(f"https://api.kraken.com/0/public/Ticker?pair={PAIR}").json()
+        return float(res["result"][PAIR]["c"][0])
     except Exception as e:
         print(f"[ERROR] No se pudo obtener el precio ETH: {str(e)}")
         return 0
@@ -234,26 +245,25 @@ def save_memory(data):
         json.dump(data, f, indent=2)
 
 def place_order(side, quantity, log_entries=None):
-    if MODE != "REAL":
-        sim_msg = f"SIMULATED ORDER {side}\nAmount: {quantity}"
-        if log_entries is not None:
-            log_entries.append(sim_msg)
-        else:
-            send_message(sim_msg)
-        return {"simulated": True, "side": side}
+    # Siempre enviar la orden con validate=True para simular la orden en Kraken
     data = {
         "pair": PAIR,
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
+        "volume": f"{quantity:.6f}",
+        "validate": True
     }
-    volume_str = f"{quantity:.6f}"
-    data["volume"] = volume_str
     response = kraken_request("AddOrder", data, log_entries=log_entries)
-    order_msg = f"{side} ORDER\nAmount: {volume_str}\nPayload: {json.dumps(data)}\nResponse: {json.dumps(response)}"
+    order_msg = (
+        f"✅ Orden simulada enviada correctamente a Kraken. Esto es una PRUEBA, no se gastó dinero.\n"
+        f"{side} ORDER (SIMULADA)\nAmount: {data['volume']}\nPayload: {json.dumps(data)}\nResponse: {json.dumps(response)}"
+    )
     if log_entries is not None:
         log_entries.append(order_msg)
     else:
         send_message(order_msg)
+    # Además, enviar mensaje explícito por Telegram si no está en log_entries
+    send_message("✅ Orden simulada enviada correctamente a Kraken. Esto es una PRUEBA, no se gastó dinero.")
     return response
 
 def decision(price, usdt, eth, memory):
@@ -428,6 +438,7 @@ def main():
         last_balance_sent = ""
         last_compact_log = ""
         while True:
+            # Cooldown entre ciclos: 120-150 segundos
             time.sleep(120 + random.randint(0, 30))  # Espera mínima para evitar sobrecarga de Kraken API
             modo_dios_legandario(memory)
             # 🧠 Reporte inteligente de actividad del bot cada 30 minutos
@@ -446,7 +457,7 @@ def main():
                 save_memory(memory)
             handle_command()
             try:
-                # Compact log para balance y acciones
+                # Compact log para balance y acciones. Solo una llamada a get_balance por ciclo.
                 usdt, eth = get_balance(log_entries=log_entries)
                 print(f"[INFO] Balance actual → USDT: ${usdt:.2f}, ETH: {eth:.6f}")
                 price = get_price()
@@ -489,8 +500,8 @@ def main():
                             save_memory(memory)
                             report(action, price)
 
-                # Enviar log compacto cada 60 segundos si hay cambios
-                if log_entries and (time.time() - last_log_time > 60):
+                # Enviar log compacto cada 90 segundos si hay cambios
+                if log_entries and (time.time() - last_log_time > 90):
                     send_compact_log(log_entries)
                     log_entries.clear()
                     last_log_time = time.time()
