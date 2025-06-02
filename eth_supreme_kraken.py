@@ -215,7 +215,8 @@ def load_memory():
             "strategy_notes": "ETH Supreme Kraken initialized. Tracking trade memory and balance snapshots.",
             "last_action": None,
             "last_lockout_warning": None,
-            "last_funds_warning": None
+            "last_funds_warning": None,
+            "last_alert_time": None
         }
         save_memory(memory)
         return memory
@@ -227,6 +228,8 @@ def load_memory():
                 memory["last_lockout_warning"] = None
             if "last_funds_warning" not in memory:
                 memory["last_funds_warning"] = None
+            if "last_alert_time" not in memory:
+                memory["last_alert_time"] = None
             return memory
     except:
         memory = {
@@ -235,7 +238,8 @@ def load_memory():
             "strategy_notes": "ETH Supreme Kraken recovered from memory error.",
             "last_action": None,
             "last_lockout_warning": None,
-            "last_funds_warning": None
+            "last_funds_warning": None,
+            "last_alert_time": None
         }
         save_memory(memory)
         return memory
@@ -387,18 +391,19 @@ def main():
                 # Cooldown entre ciclos: 120-150 segundos
                 time.sleep(120 + random.randint(0, 30))
                 modo_dios_legandario(memory)
-                # 🧠 Reporte inteligente de actividad del bot cada 30 minutos
+                # 🧠 Reporte inteligente de actividad del bot cada 2 horas
                 now = datetime.now()
                 last_status = memory.get("last_status_report")
-                if not last_status or (now - datetime.fromisoformat(last_status)).total_seconds() > 1800:
+                if not last_status or (now - datetime.fromisoformat(last_status)).total_seconds() > 7200:
                     current_price = get_price()
                     trend = "📈 al alza" if current_price > memory.get("last_idle_price", current_price) else "📉 a la baja"
-                    msg_options = [
-                        f"✅ Sigo vivo y analizando el mercado ETH. Último precio: ${current_price:.2f} ({trend}).",
-                        f"🧠 Estoy monitoreando posibles entradas. ETH a ${current_price:.2f}, esperando oportunidad clara.",
-                        f"🔎 Luciano, el bot sigue operativo. ETH se mueve {trend}, sin señales fuertes todavía."
-                    ]
-                    send_message(random.choice(msg_options))
+                    if memory.get("last_action") != "BUY" and memory.get("last_action") != "SELL":
+                        msg_options = [
+                            f"✅ Sigo vivo y analizando el mercado ETH. Último precio: ${current_price:.2f} ({trend}).",
+                            f"🧠 Estoy monitoreando posibles entradas. ETH a ${current_price:.2f}, esperando oportunidad clara.",
+                            f"🔎 Luciano, el bot sigue operativo. ETH se mueve {trend}, sin señales fuertes todavía."
+                        ]
+                        send_message(random.choice(msg_options))
                     memory["last_status_report"] = now.isoformat()
                     save_memory(memory)
                 handle_command()
@@ -482,7 +487,10 @@ def main():
                 # Protección: evitar entrar si el precio cae más de 1% en la última hora
                 if ticker_data["price_change_percent"] < -1.0:
                     print("[ALERTA] El mercado está cayendo con fuerza. Entrada abortada.")
-                    log_entries.append("[ALERTA] El mercado está cayendo con fuerza. Entrada abortada.")
+                    if memory.get("last_alert_time") is None or (datetime.now() - datetime.fromisoformat(memory.get("last_alert_time"))).total_seconds() > 3600:
+                        log_entries.append("[ALERTA] El mercado está cayendo con fuerza. Entrada abortada.")
+                        memory["last_alert_time"] = datetime.now().isoformat()
+                        save_memory(memory)
                 elif current_price <= sniper_entry_price and usdt_balance >= min_trade_usdt:
                     if memory.get("last_action") != "BUY":
                         # Solo proceder si el análisis Sniper+Guardian lo permite
