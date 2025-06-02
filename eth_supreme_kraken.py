@@ -264,7 +264,7 @@ def save_memory(data):
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def place_order(side, quantity, log_entries=None):
+def place_order(side, quantity, log_entries=None, validate=False):
     # Ejecutar orden real
     nonce = str(int(1000 * time.time()))
     data = {
@@ -272,7 +272,7 @@ def place_order(side, quantity, log_entries=None):
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
         "volume": f"{quantity:.6f}",
-        "validate": False,  # Real order, not validate/simulated
+        "validate": validate,  # Real order, not validate/simulated
         "nonce": nonce
     }
     response = kraken_request("AddOrder", data, log_entries=log_entries)
@@ -551,7 +551,7 @@ def main():
                     if usdt_balance >= min_trade_usdt:
                         trade_qty = round(usdt_balance / current_price, 6)
                         log_entries.append(f"🚨 Forzando compra inicial de {trade_qty} ETH...")
-                        res = place_order("buy", trade_qty, test=False)
+                        res = place_order("BUY", trade_qty, log_entries=log_entries, validate=False)
 
                         if res["error"]:
                             log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
