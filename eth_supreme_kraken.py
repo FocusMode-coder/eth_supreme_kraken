@@ -135,12 +135,14 @@ def get_balance():
     if res and "result" in res:
         try:
             raw = res["result"]
-            # DEBUG: log crudo para ver si los keys están bien
             send_message(f"📊 Balance crudo: {json.dumps(raw)}")
-            # Convertir todos los balances a float por seguridad
-            balances = {k.upper(): float(v) for k, v in raw.items()}
-            usdt_balance = next((float(v) for k, v in raw.items() if "USDT" in k.upper()), 0)
-            eth_balance = balances.get("XETH", balances.get("ETH", 0))
+            usdt_balance = 0
+            # Fix: detectar claves comunes de Kraken
+            for k, v in raw.items():
+                if k.upper() in ["ZUSD", "ZUSDT", "USDT", "USD"]:
+                    usdt_balance = float(v)
+                    break
+            eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
             return usdt_balance, eth_balance
         except Exception as e:
             send_message(f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}")
