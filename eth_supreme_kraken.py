@@ -137,9 +137,9 @@ def get_balance():
             raw = res["result"]
             send_message(f"📊 Balance crudo: {json.dumps(raw)}")
             usdt_balance = 0
-            # Fix: detectar claves comunes de Kraken
+            # Fix: detectar claves comunes de Kraken, solo buscar claves con 'USDT'
             for k, v in raw.items():
-                if k.upper() in ["ZUSD", "ZUSDT", "USDT", "USD"]:
+                if "USDT" in k.upper():
                     usdt_balance = float(v)
                     break
             eth_balance = float(raw.get("XETH", raw.get("ETH", 0)))
@@ -202,9 +202,11 @@ def place_order(side, quantity):
         "pair": "XETHZUSD",
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
-        "volume": quantity
+        # "volume": quantity  # will be set below as string
     }
-    send_message(f"📤 Enviando orden {side} con cantidad: {quantity}")
+    volume_str = f"{quantity:.6f}"
+    data["volume"] = volume_str
+    send_message(f"📤 Enviando orden {side} con cantidad: {volume_str}")
     response = kraken_request("AddOrder", data)
     send_message(f"📦 Payload enviado: {json.dumps(data)}")
     send_message(f"📨 Respuesta Kraken: {json.dumps(response)}")
