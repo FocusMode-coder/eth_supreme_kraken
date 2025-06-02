@@ -205,7 +205,10 @@ def place_order(side, quantity):
         "volume": quantity
     }
     send_message(f"📤 Enviando orden {side} con cantidad: {quantity}")
-    return kraken_request("AddOrder", data)
+    response = kraken_request("AddOrder", data)
+    send_message(f"📦 Payload enviado: {json.dumps(data)}")
+    send_message(f"📨 Respuesta Kraken: {json.dumps(response)}")
+    return response
 
 def decision(price, usdt, eth, memory):
     last = memory["last_action"]
@@ -293,6 +296,8 @@ def main():
                     save_memory(memory)
             else:
                 quantity = round(10 / price, 6)
+                if quantity < 0.001:
+                    quantity = 0.001  # Forzar mínimo según reglas Kraken
                 res = place_order("BUY", quantity)
                 if "error" in res and res["error"]:
                     send_message(f"⚠️ Error al ejecutar la orden de test: {res['error']}")
