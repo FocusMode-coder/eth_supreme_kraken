@@ -17,7 +17,7 @@ PRIVATE_KEY = "p/3THTJpykhJpVXa2EA3ofg6802Inu9ry/secnKTunfVzvKtINkcGKaznetgf40hp
 BASE_URL = os.getenv("KRAKEN_BASE_URL")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7613460488")
-PAIR = "XETHZUSD"
+PAIR = "XETHUSDT"
 LOG_FILE = os.getenv("LOG_FILE", "kraken_log.txt")
 MEMORY_FILE = "eth_memory.json"
 MODE = os.getenv("MODE", "REAL")
@@ -237,7 +237,7 @@ def place_order(side, quantity, log_entries=None):
             send_message(sim_msg)
         return {"simulated": True, "side": side}
     data = {
-        "pair": "XETHZUSD",
+        "pair": PAIR,
         "type": "buy" if side == "BUY" else "sell",
         "ordertype": "market",
     }
