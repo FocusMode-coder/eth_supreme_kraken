@@ -124,7 +124,7 @@ def kraken_request(endpoint, data):
         if response_json.get("error"):
             send_message(f"[❌ Kraken Error {endpoint}] {response_json['error']}")
         
-        return response_json.get("result", {})
+        return response_json
     except Exception as e:
         send_message(f"[🔥 Exception in kraken_request] {str(e)}")
         return {}
@@ -132,27 +132,16 @@ def kraken_request(endpoint, data):
 def get_balance():
     time.sleep(3)
     res = kraken_request("Balance", {})
-    if "result" in res:
-        if res["result"]:
-            usdt_balance = res["result"].get("USDT") or res["result"].get("ZUSD") or 0
-            eth_balance = res["result"].get("XETH", 0)
-            return float(usdt_balance), float(eth_balance)
-        else:
-            send_message("⚠️ Kraken devolvió balances vacíos o incompletos: " + json.dumps(res))
+    if res:
+        try:
+            usdt_balance = float(res.get("USDT") or res.get("ZUSD") or 0)
+            eth_balance = float(res.get("XETH") or 0)
+            return usdt_balance, eth_balance
+        except Exception as e:
+            send_message(f"❌ Error interpretando balances Kraken: {json.dumps(res)} - {str(e)}")
             return 0, 0
     else:
-        if "error" in res and any("lockout" in err.lower() for err in res["error"]):
-            now = datetime.now()
-            # load memory to avoid circular import
-            memory = load_memory()
-            last_warning = memory.get("last_lockout_warning")
-            if not last_warning or (now - datetime.fromisoformat(last_warning)).total_seconds() > 3600:
-                send_message("⛔ Kraken API ha devuelto un bloqueo temporal (lockout). Esperando antes de reintentar.")
-                memory["last_lockout_warning"] = now.isoformat()
-                save_memory(memory)
-            time.sleep(900)  # Esperar 15 minutos en caso de bloqueo
-        else:
-            send_message(f"❌ Error de Kraken al obtener balances: {json.dumps(res)}")
+        send_message("❌ Error de Kraken: respuesta vacía al pedir balances.")
         return 0, 0
 
 def get_price():
