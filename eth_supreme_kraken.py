@@ -134,7 +134,9 @@ def get_balance():
     res = kraken_request("Balance", {})
     if "result" in res:
         if res["result"]:
-            return float(res["result"].get("ZUSD", 0)), float(res["result"].get("XETH", 0))
+            usdt_balance = res["result"].get("USDT") or res["result"].get("ZUSD") or 0
+            eth_balance = res["result"].get("XETH", 0)
+            return float(usdt_balance), float(eth_balance)
         else:
             send_message("⚠️ Kraken devolvió balances vacíos o incompletos: " + json.dumps(res))
             return 0, 0
