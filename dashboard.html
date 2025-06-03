@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ETH Supreme Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #f0f6fc;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    canvas {
+      background-color: #161b22;
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    @keyframes float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+      100% { transform: translateY(0px); }
+    }
+  </style>
+</head>
+<body>
+  <img src="brain_gold_logo.png" alt="Focus Mode Logo" style="display: block; margin: 0 auto 1rem; height: 80px; animation: float 3s ease-in-out infinite;">
+  <h1>🧠 FOCUS MODE – ETH Supreme Dashboard</h1>
+  <div style="text-align: center; font-size: 0.95rem; color: #c9d1d9; margin-bottom: 1.5rem;">
+    <p>Este dashboard muestra en tiempo real:</p>
+    <ul style="list-style: none; padding-left: 0;">
+      <li><strong>🟢 Precio ETH Real</strong>: datos reales actuales desde Kraken</li>
+      <li><strong>🟡 Predicción ETH</strong>: estimaciones del bot para 1 a 5 días basado en volumen y estrategia</li>
+      <li><strong>📊 Volumen ETH</strong>: barras que indican actividad de compra/venta en cada intervalo</li>
+      <li><strong>📡 Estado del Bot</strong>: actividad reciente del bot reportada desde Kraken</li>
+      <li><strong>🔵 EMA</strong>: Media móvil exponencial que suaviza las variaciones de precio.</li>
+      <li><strong>🔴 RSI</strong>: Índice de fuerza relativa que indica zonas de sobrecompra o sobreventa.</li>
+    </ul>
+    <p style="font-size: 0.85rem; color: #8b949e;">
+      <strong>🟢 Precio ETH Real</strong>: Línea continua verde que representa los valores reales de ETH según el exchange Kraken.
+      <br>
+      <strong>🟡 Predicción ETH</strong>: Línea discontinua dorada, basada en análisis del bot usando volumen y lógica avanzada, proyectando hasta 5 días.
+      <br>
+      <strong>📊 Volumen ETH</strong>: Barras azules que indican el nivel de actividad de trading por momento. Alto volumen sugiere más presión de compra o venta.
+      <br>
+      <strong>📡 Estado del Bot</strong>: Última acción reportada por el bot; puede incluir compras, ventas, señales, o estado de inactividad.
+      <br>
+      <strong>🔵 EMA</strong>: Curva azul que representa la media móvil exponencial, usada para detectar tendencias.
+      <br>
+      <strong>🔴 RSI</strong>: Curva roja que marca niveles de sobrecompra/sobreventa para identificar posibles giros.
+    </p>
+  </div>
+  <div style="text-align: center; margin-bottom: 2rem;">
+    <label for="rangeSelect" style="margin-right: 0.5rem;">Ver rango de predicción:</label>
+    <select id="rangeSelect" onchange="fetchData()">
+      <option value="1">1 Día</option>
+      <option value="3">3 Días</option>
+      <option value="5" selected>5 Días</option>
+    </select>
+  </div>
+  <canvas id="ethChart" width="800" height="400"></canvas>
+  <canvas id="volumeChart" width="800" height="200" style="margin-top: 2rem;"></canvas>
+  <div id="botStatus" style="margin-top: 2rem; text-align: center; font-size: 1.2rem;">
+    <span>📡 Estado del Bot: <strong id="statusText">Cargando...</strong></span>
+  </div>
+  <script>
+    async function fetchData() {
+      const range = document.getElementById('rangeSelect')?.value || 5;
+      const response = await fetch('./eth_prediction.json');
+      const data = await response.json();
+
+      const slicedData = data.slice(0, range * 24); // 24 datos por día
+      const dates = slicedData.map(item => item.timestamp);
+      const prices = slicedData.map(item => item.price);
+      const predictions = slicedData.map(item => item.prediction);
+      const volumes = slicedData.map(item => item.volume || 0);
+
+      const ethCtx = document.getElementById('ethChart').getContext('2d');
+      const volumeCtx = document.getElementById('volumeChart').getContext('2d');
+
+      if (window.ethChart) window.ethChart.destroy();
+      if (window.volumeChart) window.volumeChart.destroy();
+
+      const ema = slicedData.map(item => item.ema || null);
+      const rsi = slicedData.map(item => item.rsi || null);
+
+      window.ethChart = new Chart(ethCtx, {
+        type: 'line',
+        data: {
+          labels: dates,
+          datasets: [
+            {
+              label: 'Precio ETH Real',
+              data: prices,
+              borderColor: 'rgba(0, 255, 132, 1)',
+              backgroundColor: 'rgba(0, 255, 132, 0.1)',
+              tension: 0.3
+            },
+            {
+              label: 'Predicción ETH',
+              data: predictions,
+              borderColor: 'rgba(255, 215, 0, 1)',
+              backgroundColor: 'rgba(255, 215, 0, 0.1)',
+              borderDash: [5, 5],
+              tension: 0.3
+            },
+            {
+              label: 'EMA',
+              data: ema,
+              borderColor: 'rgba(0, 123, 255, 1)',
+              backgroundColor: 'rgba(0, 123, 255, 0.1)',
+              tension: 0.3
+            },
+            {
+              label: 'RSI',
+              data: rsi,
+              borderColor: 'rgba(255, 99, 132, 1)',
+              backgroundColor: 'rgba(255, 99, 132, 0.1)',
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              labels: {
+                color: '#f0f6fc'
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: '#f0f6fc'
+              }
+            },
+            y: {
+              ticks: {
+                color: '#f0f6fc'
+              }
+            }
+          }
+        }
+      });
+
+      window.volumeChart = new Chart(volumeCtx, {
+        type: 'bar',
+        data: {
+          labels: dates,
+          datasets: [{
+            label: 'Volumen ETH',
+            data: volumes,
+            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              labels: {
+                color: '#f0f6fc'
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: '#f0f6fc'
+              }
+            },
+            y: {
+              ticks: {
+                color: '#f0f6fc'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    async function fetchBotStatus() {
+      try {
+        const res = await fetch('./kraken_log.txt');
+        const text = await res.text();
+        const lastLine = text.trim().split('\n').pop();
+        document.getElementById('statusText').innerText = lastLine || "Sin actividad reciente";
+      } catch {
+        document.getElementById('statusText').innerText = "Sin conexión";
+      }
+    }
+
+    setInterval(fetchBotStatus, 3000); // Actualiza cada 3 segundos
+    fetchBotStatus();
+
+    setInterval(fetchData, 60000); // Refresca los datos cada 60 segundos
+    fetchData();
+  </script>
+</body>
+</html>

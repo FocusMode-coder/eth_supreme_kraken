@@ -1,3 +1,29 @@
+import json
+from datetime import datetime, timedelta
+
+# --- ETH Prediction Logging & Simple Forecast ---
+def update_eth_prediction(price):
+    try:
+        with open("eth_prediction.json", "r") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {"history": [], "prediction": []}
+
+    timestamp = datetime.now().isoformat()
+    data["history"].append({"time": timestamp, "price": price})
+    data["history"] = data["history"][-120:]  # mantén últimos 120 puntos (~5 días si cada hora)
+
+    # Simula una predicción simple (placeholder)
+    last_price = price
+    prediction = []
+    for i in range(1, 6):
+        future_time = (datetime.now() + timedelta(days=i)).isoformat()
+        future_price = last_price * (1 + 0.01 * i)  # ejemplo de tendencia alcista
+        prediction.append({"time": future_time, "price": round(future_price, 2)})
+    data["prediction"] = prediction
+
+    with open("eth_prediction.json", "w") as f:
+        json.dump(data, f, indent=2)
 import os
 import time
 import json
@@ -363,6 +389,17 @@ def main():
                 save_memory(memory)
         last_notified_action = memory["last_action"]
 
+        # --- Función para cargar señal externa desde JSON ---
+        def cargar_senal_desde_json():
+            try:
+                with open("eth_prediction.json", "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and data:
+                        return data[-1]  # Toma la última señal
+            except Exception as e:
+                print(f"[ERROR] Fallo al leer señales: {e}")
+            return None
+
         def modo_dios_legandario(memory):
             now = datetime.now()
             last_trade_time = None
@@ -428,6 +465,18 @@ def main():
                 handle_command()
                 usdt_balance, eth_balance = get_balance(log_entries=log_entries)
                 current_price = get_price()
+                # --- Señal externa desde JSON ---
+                senal = cargar_senal_desde_json()
+                if senal:
+                    accion = senal.get("signal")
+                    if accion == "buy":
+                        print("⚡ Señal externa detectada: COMPRAR")
+                        # ejecutar_compra_eth()
+                    elif accion == "sell":
+                        print("⚡ Señal externa detectada: VENDER")
+                        # ejecutar_venta_eth()
+                # --- Registro de precio y predicción ETH ---
+                update_eth_prediction(current_price)
                 if current_price == 0:
                     log_entries.append("⚠️ No pude obtener el precio actual, Luciano. Reintentando...")
                     if log_entries:

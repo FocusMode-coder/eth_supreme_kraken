@@ -1,0 +1,13 @@
+{
+  "history": [
+    {"timestamp": "2025-06-02T08:00:00Z", "price": 3752.41, "ema": 3745.67, "rsi": 58.2},
+    {"timestamp": "2025-06-02T09:00:00Z", "price": 3761.98, "ema": 3750.23, "rsi": 61.7},
+    {"timestamp": "2025-06-02T10:00:00Z", "price": 3775.10, "ema": 3760.81, "rsi": 65.4}
+  ],
+  "prediction": [
+    {"timestamp": "2025-06-02T11:00:00Z", "predicted_price": 3785.25, "ema": 3773.62, "rsi": 67.1},
+    {"timestamp": "2025-06-02T12:00:00Z", "predicted_price": 3791.80, "ema": 3781.45, "rsi": 68.3},
+    {"timestamp": "2025-06-02T13:00:00Z", "predicted_price": 3787.90, "ema": 3786.78, "rsi": 66.8},
+    {"timestamp": "2025-06-02T14:00:00Z", "predicted_price": 3774.22, "ema": 3779.01, "rsi": 63.5}
+  ]
+}
