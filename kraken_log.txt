@@ -1,0 +1,33 @@
+import time
+import krakenex
+
+def main():
+    api = krakenex.API()
+    api.load_key('kraken.key')
+
+    while True:
+        try:
+            # Obtener saldo
+            balance = api.query_private('Balance')
+            with open("kraken_log.txt", "a") as log_file:
+                log_file.write(f"Saldo actual: {balance}\n")
+
+            # Obtener ordenes abiertas
+            open_orders = api.query_private('OpenOrders')
+            with open("kraken_log.txt", "a") as log_file:
+                log_file.write(f"Órdenes abiertas: {open_orders}\n")
+
+            # Aquí iría la lógica para enviar órdenes, señales, etc.
+            # Por ejemplo, enviar una orden de compra
+            # response = api.query_private('AddOrder', {...})
+            # with open("kraken_log.txt", "a") as log_file:
+            #     log_file.write(f"Orden enviada: {response}\n")
+
+        except Exception as e:
+            with open("kraken_log.txt", "a") as log_file:
+                log_file.write(f"Error: {str(e)}\n")
+
+        time.sleep(60)
+
+if __name__ == "__main__":
+    main()
