@@ -519,6 +519,27 @@ def main():
                     last_buy = next((t for t in reversed(trades) if t["type"] == "BUY"), None)
                     if last_buy:
                         entry_price = last_buy["price"]
+
+                # Protección automática si ETH cae más de 1.5%
+                if entry_price and eth_balance > min_eth_amount:
+                    drop_pct = ((entry_price - current_price) / entry_price) * 100
+                    if drop_pct >= 1.5:
+                        log_entries.append(f"⚠️ ETH cayó {drop_pct:.2f}% desde la compra (${entry_price:.2f} ➜ ${current_price:.2f})")
+                        sell_qty = eth_balance
+                        res = place_order("SELL", sell_qty, log_entries=log_entries)
+                        if "error" in res and res["error"]:
+                            log_entries.append(f"❌ Error al vender por caída: {res['error']}")
+                        else:
+                            memory.setdefault("trades", []).append({
+                                "type": "SELL",
+                                "price": current_price,
+                                "quantity": sell_qty,
+                                "time": datetime.now().isoformat()
+                            })
+                            memory["last_action"] = "SELL"
+                            save_memory(memory)
+                            report("SELL", current_price)
+                            send_message(f"💥 Protección activada. Vendido {sell_qty:.5f} ETH a ${current_price:.2f} por caída de mercado.")
                 guardian_signal = False
                 if entry_price is not None and eth_balance >= min_eth_amount:
                     if should_exit_trade(entry_price, current_price):
