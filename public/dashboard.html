@@ -1,128 +1,160 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ETH Supreme Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ETH Supreme Kraken Dashboard</title>
   <style>
     body {
-      font-family: 'Segoe UI', sans-serif;
-      background: #0d1117;
-      color: #f0f6fc;
       margin: 0;
-      padding: 2rem;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #0e0e0e;
+      color: #f1f1f1;
     }
-    h1 {
+    header {
+      padding: 20px;
+      background: linear-gradient(to right, #4a00e0, #8e2de2);
       text-align: center;
-      margin-bottom: 2rem;
     }
-    canvas {
-      background-color: #161b22;
+    header h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+    section {
+      padding: 20px;
+    }
+    .card {
+      background-color: #1e1e1e;
       border-radius: 8px;
-      padding: 1rem;
+      padding: 15px;
+      margin: 15px 0;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.05);
     }
-    @keyframes float {
-      0% { transform: translateY(0px); }
-      50% { transform: translateY(-10px); }
-      100% { transform: translateY(0px); }
+    .card h2 {
+      color: #ffd700;
+      margin-bottom: 10px;
+    }
+    .stat {
+      font-size: 20px;
+    }
+    .highlight {
+      color: #00ffcc;
+    }
+    footer {
+      text-align: center;
+      padding: 10px;
+      color: #666;
+    }
+    #alertList {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    #alertList li {
+      margin-bottom: 6px;
+      color: #f1f1f1;
     }
   </style>
 </head>
 <body>
-  <img src="brain_gold_logo.png" alt="Focus Mode Logo" style="display: block; margin: 0 auto 1rem; height: 80px; animation: float 3s ease-in-out infinite;">
-  <h1>🧠 FOCUS MODE – ETH Supreme Dashboard</h1>
-  <div style="text-align: center; font-size: 0.95rem; color: #c9d1d9; margin-bottom: 1.5rem;">
-    <p>Este dashboard muestra en tiempo real:</p>
-    <ul style="list-style: none; padding-left: 0;">
-      <li><strong>🟢 Precio ETH Real</strong>: datos reales actuales desde Kraken</li>
-      <li><strong>🟡 Predicción ETH</strong>: estimaciones del bot para 1 a 5 días basado en volumen y estrategia</li>
-      <li><strong>📊 Volumen ETH</strong>: barras que indican actividad de compra/venta en cada intervalo</li>
-      <li><strong>📡 Estado del Bot</strong>: actividad reciente del bot reportada desde Kraken</li>
-      <li><strong>🔵 EMA</strong>: Media móvil exponencial que suaviza las variaciones de precio.</li>
-      <li><strong>🔴 RSI</strong>: Índice de fuerza relativa que indica zonas de sobrecompra o sobreventa.</li>
-    </ul>
-    <p style="font-size: 0.85rem; color: #8b949e;">
-      <strong>🟢 Precio ETH Real</strong>: Línea continua verde que representa los valores reales de ETH según el exchange Kraken.
-      <br>
-      <strong>🟡 Predicción ETH</strong>: Línea discontinua dorada, basada en análisis del bot usando volumen y lógica avanzada, proyectando hasta 5 días.
-      <br>
-      <strong>📊 Volumen ETH</strong>: Barras azules que indican el nivel de actividad de trading por momento. Alto volumen sugiere más presión de compra o venta.
-      <br>
-      <strong>📡 Estado del Bot</strong>: Última acción reportada por el bot; puede incluir compras, ventas, señales, o estado de inactividad.
-      <br>
-      <strong>🔵 EMA</strong>: Curva azul que representa la media móvil exponencial, usada para detectar tendencias.
-      <br>
-      <strong>🔴 RSI</strong>: Curva roja que marca niveles de sobrecompra/sobreventa para identificar posibles giros.
-    </p>
-  </div>
-  <div style="text-align: center; margin-bottom: 2rem;">
-    <label for="rangeSelect" style="margin-right: 0.5rem;">Ver rango de predicción:</label>
-    <select id="rangeSelect" onchange="fetchData()">
-      <option value="1">1 Día</option>
-      <option value="3">3 Días</option>
-      <option value="5" selected>5 Días</option>
-    </select>
-  </div>
-  <canvas id="ethChart" width="800" height="400"></canvas>
-  <canvas id="volumeChart" width="800" height="200" style="margin-top: 2rem;"></canvas>
-  <div id="botStatus" style="margin-top: 2rem; text-align: center; font-size: 1.2rem;">
-    <span>📡 Estado del Bot: <strong id="statusText">Cargando...</strong></span>
-  </div>
+  <header>
+    <h1>🔮 ETH Supreme Kraken Bot Dashboard</h1>
+    <p>Monitor en tiempo real conectado al bot profesional</p>
+  </header>
+
+  <section>
+    <div class="card">
+      <h2>Estado Actual</h2>
+      <p class="stat">ETH Precio actual: <span class="highlight" id="ethPrice">Cargando...</span></p>
+      <p class="stat">Balance ETH: <span id="ethBalance">0.00000</span></p>
+      <p class="stat">Balance USDT: <span id="usdtBalance">0.00</span></p>
+      <p class="stat">Última acción: <span id="lastAction">--</span></p>
+      <p class="stat">Volumen 24h: <span id="ethVolume">--</span></p>
+      <p class="stat">Última actualización: <span id="ethTimestamp">--</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Predicción 5 días</h2>
+      <ul id="forecastList">
+        <li>Cargando...</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Gráfico de ETH</h2>
+      <canvas id="ethChart" height="100"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Alertas recientes</h2>
+      <ul id="alertList">
+        <li>Cargando alertas...</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    Hecho con 🧠 por LucianoAI – Versión Kraken Supreme
+  </footer>
+
   <script>
-    async function fetchData() {
-      const range = document.getElementById('rangeSelect')?.value || 5;
-      const response = await fetch('./eth_prediction.json');
-      const data = await response.json();
+    async function loadDashboard() {
+      try {
+        const pred = await fetch('/eth_prediction.json').then(res => res.json());
+        const mem = await fetch('/eth_memory.json').then(res => res.json());
 
-      const slicedData = data.slice(0, range * 24); // 24 datos por día
-      const dates = slicedData.map(item => item.timestamp);
-      const prices = slicedData.map(item => item.price);
-      const predictions = slicedData.map(item => item.prediction);
-      const volumes = slicedData.map(item => item.volume || 0);
+        document.getElementById('ethPrice').textContent = pred.history?.slice(-1)[0]?.price.toFixed(2) || '--';
+        document.getElementById('forecastList').innerHTML = pred.prediction.map(p =>
+          `<li>${new Date(p.time).toLocaleDateString()}: <strong>$${p.price}</strong></li>`
+        ).join('');
+        document.getElementById('lastAction').textContent = mem.last_action || 'Sin acción';
 
-      const ethCtx = document.getElementById('ethChart').getContext('2d');
-      const volumeCtx = document.getElementById('volumeChart').getContext('2d');
+        const lastSnapshot = mem.balance_snapshots?.slice(-1)[0] || { eth: 0, usdt: 0, volume: 0, time: 0 };
+        document.getElementById('ethBalance').textContent = lastSnapshot.eth?.toFixed(5) || '0.00000';
+        document.getElementById('usdtBalance').textContent = lastSnapshot.usdt?.toFixed(2) || '0.00';
+        document.getElementById('ethVolume').textContent = lastSnapshot.volume?.toFixed(2) || '--';
+        document.getElementById('ethTimestamp').textContent = new Date(lastSnapshot.time).toLocaleString() || '--';
 
-      if (window.ethChart) window.ethChart.destroy();
-      if (window.volumeChart) window.volumeChart.destroy();
+        const alerts = await fetch('/eth_alerts.json').then(res => res.json());
+        document.getElementById('alertList').innerHTML = alerts.map(a =>
+          `<li>${new Date(a.time).toLocaleString()} – <strong>${a.message}</strong></li>`
+        ).join('');
 
-      const ema = slicedData.map(item => item.ema || null);
-      const rsi = slicedData.map(item => item.rsi || null);
+      } catch (e) {
+        document.getElementById('forecastList').innerHTML = '<li>Error al cargar datos.</li>';
+      }
+    }
+    loadDashboard();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    async function drawChart(pred, mem) {
+      const ctx = document.getElementById('ethChart').getContext('2d');
 
-      window.ethChart = new Chart(ethCtx, {
+      const labels = pred.history.map(p => new Date(p.time).toLocaleDateString());
+      const prices = pred.history.map(p => p.price);
+      const forecast = pred.prediction.map(p => p.price);
+      const forecastLabels = pred.prediction.map(p => new Date(p.time).toLocaleDateString());
+
+      const chart = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: dates,
+          labels: [...labels, ...forecastLabels],
           datasets: [
             {
-              label: 'Precio ETH Real',
-              data: prices,
-              borderColor: 'rgba(0, 255, 132, 1)',
-              backgroundColor: 'rgba(0, 255, 132, 0.1)',
-              tension: 0.3
+              label: 'ETH Precio',
+              data: [...prices, ...Array(forecast.length).fill(null)],
+              borderColor: '#00ffcc',
+              tension: 0.3,
+              borderWidth: 2
             },
             {
-              label: 'Predicción ETH',
-              data: predictions,
-              borderColor: 'rgba(255, 215, 0, 1)',
-              backgroundColor: 'rgba(255, 215, 0, 0.1)',
+              label: 'Predicción',
+              data: [...Array(prices.length).fill(null), ...forecast],
+              borderColor: '#ffd700',
               borderDash: [5, 5],
-              tension: 0.3
-            },
-            {
-              label: 'EMA',
-              data: ema,
-              borderColor: 'rgba(0, 123, 255, 1)',
-              backgroundColor: 'rgba(0, 123, 255, 0.1)',
-              tension: 0.3
-            },
-            {
-              label: 'RSI',
-              data: rsi,
-              borderColor: 'rgba(255, 99, 132, 1)',
-              backgroundColor: 'rgba(255, 99, 132, 0.1)',
-              tension: 0.3
+              tension: 0.3,
+              borderWidth: 2
             }
           ]
         },
@@ -131,55 +163,19 @@
           plugins: {
             legend: {
               labels: {
-                color: '#f0f6fc'
+                color: '#f1f1f1'
               }
             }
           },
           scales: {
             x: {
               ticks: {
-                color: '#f0f6fc'
+                color: '#f1f1f1'
               }
             },
             y: {
               ticks: {
-                color: '#f0f6fc'
-              }
-            }
-          }
-        }
-      });
-
-      window.volumeChart = new Chart(volumeCtx, {
-        type: 'bar',
-        data: {
-          labels: dates,
-          datasets: [{
-            label: 'Volumen ETH',
-            data: volumes,
-            backgroundColor: 'rgba(54, 162, 235, 0.5)',
-            borderColor: 'rgba(54, 162, 235, 1)',
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: {
-              labels: {
-                color: '#f0f6fc'
-              }
-            }
-          },
-          scales: {
-            x: {
-              ticks: {
-                color: '#f0f6fc'
-              }
-            },
-            y: {
-              ticks: {
-                color: '#f0f6fc'
+                color: '#f1f1f1'
               }
             }
           }
@@ -187,22 +183,12 @@
       });
     }
 
-    async function fetchBotStatus() {
-      try {
-        const res = await fetch('./kraken_log.txt');
-        const text = await res.text();
-        const lastLine = text.trim().split('\n').pop();
-        document.getElementById('statusText').innerText = lastLine || "Sin actividad reciente";
-      } catch {
-        document.getElementById('statusText').innerText = "Sin conexión";
-      }
-    }
-
-    setInterval(fetchBotStatus, 3000); // Actualiza cada 3 segundos
-    fetchBotStatus();
-
-    setInterval(fetchData, 60000); // Refresca los datos cada 60 segundos
-    fetchData();
+    loadDashboard().then(() => {
+      Promise.all([
+        fetch('/eth_prediction.json').then(res => res.json()),
+        fetch('/eth_memory.json').then(res => res.json())
+      ]).then(([pred, mem]) => drawChart(pred, mem));
+    });
   </script>
 </body>
 </html>
