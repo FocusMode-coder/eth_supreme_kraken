@@ -523,6 +523,11 @@ def main():
                         print("⚡ Señal externa detectada: VENDER")
                         # ejecutar_venta_eth()
 
+                # --- Safeguard for eth_memory keys before logging ---
+                if "last_volume" not in eth_memory:
+                    eth_memory["last_volume"] = 0
+                if "last_timestamp" not in eth_memory:
+                    eth_memory["last_timestamp"] = datetime.now().isoformat()
                 # --- Mostrar volumen y timestamp desde eth_memory.json en logs ---
                 print(f"🔁 Último volumen registrado: {eth_memory['last_volume']} a las {eth_memory['last_timestamp']}")
                 # --- Registro de precio y predicción ETH ---

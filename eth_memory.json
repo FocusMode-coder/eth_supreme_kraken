@@ -2,5 +2,7 @@
   "trades": [],
   "balance_snapshots": [],
   "strategy_notes": "ETH Supreme Kraken activated in MODO DIOS. Memory now retains full historical awareness and operational intelligence.",
-  "last_action": "Initialized in MODO DIOS"
+  "last_action": "Initialized in MODO DIOS",
+  "last_volume": 0,
+  "last_timestamp": "2025-06-04T10:00:00"
 }
