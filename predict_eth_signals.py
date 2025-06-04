@@ -70,11 +70,31 @@ def save_predictions(predictions, filename='eth_prediction.json'):
     with open(filename, 'w') as f:
         json.dump(predictions, f, indent=2)
 
+def update_eth_memory(df, filename='eth_memory.json'):
+    if df.empty:
+        return
+    latest = df.iloc[-1]
+    snapshot = {
+        "volume": float(latest["volume"]),
+        "time": latest["time"].strftime('%Y-%m-%d %H:%M:%S')
+    }
+    try:
+        with open(filename, 'r') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {"balance_snapshots": []}
+
+    data["balance_snapshots"].append(snapshot)
+
+    with open(filename, 'w') as f:
+        json.dump(data, f, indent=2)
+
 if __name__ == "__main__":
     try:
         df = fetch_ohlc_data()
         predictions = generate_prediction(df)
         save_predictions(predictions)
+        update_eth_memory(df)
         print("✅ Predicciones generadas y guardadas correctamente.")
     except Exception as e:
         print(f"❌ Error generando predicciones: {e}")
@@ -88,6 +108,7 @@ def job():
         df = fetch_ohlc_data()
         predictions = generate_prediction(df)
         save_predictions(predictions)
+        update_eth_memory(df)
         print("✅ Predicciones actualizadas correctamente.")
     except Exception as e:
         print(f"❌ Error en actualización automática: {e}")

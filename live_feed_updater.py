@@ -27,6 +27,14 @@ def update_prediction_file():
     if eth_data:
         with open('eth_prediction.json', 'w') as f:
             json.dump(eth_data, f, indent=4)
+        # Also update eth_memory.json with latest price and time
+        with open('eth_memory.json', 'w') as mem_file:
+            memory_data = {
+                "last_price": eth_data['price'],
+                "last_volume": eth_data['volume'],
+                "last_updated": eth_data['timestamp']
+            }
+            json.dump(memory_data, mem_file, indent=4)
         print(f"[UPDATED] {eth_data}")
     else:
         print("[ERROR] Failed to fetch ETH data")

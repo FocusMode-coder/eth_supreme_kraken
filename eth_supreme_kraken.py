@@ -1,4 +1,9 @@
+def check_guardian_exit(price_now, price_entry, threshold_pct=1.0):
+    return price_now < price_entry * (1 - threshold_pct / 100)
+
+last_entry_price = None
 import json
+import datetime
 from datetime import datetime, timedelta
 
 # --- ETH Prediction Logging & Simple Forecast ---
@@ -400,6 +405,13 @@ def main():
                 print(f"[ERROR] Fallo al leer señales: {e}")
             return None
 
+        # --- Cargar memoria adicional desde eth_memory.json ---
+        try:
+            with open("eth_memory.json", "r") as memory_file:
+                eth_memory = json.load(memory_file)
+        except (FileNotFoundError, json.JSONDecodeError):
+            eth_memory = {"last_volume": None, "last_timestamp": None}
+
         def modo_dios_legandario(memory):
             now = datetime.now()
             last_trade_time = None
@@ -457,6 +469,9 @@ def main():
         prices = []
         volumes = []
         price_history_length = 15
+        current_position = "USDT"
+        global last_entry_price
+        import traceback
         while True:
             try:
                 time.sleep(120 + random.randint(0, 30))
@@ -465,6 +480,38 @@ def main():
                 handle_command()
                 usdt_balance, eth_balance = get_balance(log_entries=log_entries)
                 current_price = get_price()
+
+                # Guardian exit check BEFORE evaluating new signals/decisions
+                if current_position == "ETH" and last_entry_price is not None:
+                    if check_guardian_exit(current_price, last_entry_price):
+                        print("🛡️ Guardian activado: vendiendo ETH para proteger capital")
+                        bot = type("Bot", (), {"send_message": send_message})  # dummy for context if needed
+                        chat_id = CHAT_ID
+                        bot.send_message(chat_id, f'🛡️ Guardian activado: vendiendo ETH para proteger capital')
+                        with open("kraken_log.txt", "a") as log_file:
+                            log_file.write(f"{datetime.datetime.now()} - Guardian: Vendida posición ETH para proteger capital a {current_price}\n")
+                        def sell_eth():
+                            sell_qty = eth_balance if eth_balance < TRADE_QUANTITY else TRADE_QUANTITY
+                            res = place_order("SELL", sell_qty, log_entries=log_entries)
+                            if "error" in res and res["error"]:
+                                log_entries.append(f"⚠️ Error en venta guardian: {res['error']}")
+                                send_compact_log(log_entries)
+                                log_entries.clear()
+                            else:
+                                memory.setdefault("trades", []).append({
+                                    "type": "SELL",
+                                    "price": current_price,
+                                    "quantity": sell_qty,
+                                    "time": datetime.now().isoformat()
+                                })
+                                memory["last_action"] = "SELL"
+                                save_memory(memory)
+                                report("SELL", current_price)
+                                send_message(f"🚨 Guardian activado: vendido {sell_qty:.5f} ETH a ${current_price:.2f} para proteger capital.")
+                        sell_eth()
+                        current_position = "USDT"
+                        last_entry_price = None
+                        continue
                 # --- Señal externa desde JSON ---
                 senal = cargar_senal_desde_json()
                 if senal:
@@ -475,6 +522,9 @@ def main():
                     elif accion == "sell":
                         print("⚡ Señal externa detectada: VENDER")
                         # ejecutar_venta_eth()
+
+                # --- Mostrar volumen y timestamp desde eth_memory.json en logs ---
+                print(f"🔁 Último volumen registrado: {eth_memory['last_volume']} a las {eth_memory['last_timestamp']}")
                 # --- Registro de precio y predicción ETH ---
                 update_eth_prediction(current_price)
                 if current_price == 0:
@@ -525,7 +575,8 @@ def main():
                                f"Cambio precio: {price_change:.2f}%\n"
                                f"Volumen: {current_volume:.2f} ({volume_change:.2f}x)\n"
                                f"Condiciones: {', '.join(strong_conditions) if strong_conditions else 'Ninguna fuerte'}\n"
-                               f"Próximo log automático en 2h.")
+                               f"Próximo log automático en 2h.\n"
+                               f"🔁 Último volumen registrado: {eth_memory['last_volume']} a las {eth_memory['last_timestamp']}")
                         send_message(msg)
                         last_status_log_time = time.time()
                     # Señal fuerte inmediata
@@ -556,11 +607,28 @@ def main():
                                 # Log conciso tras operación
                                 send_message(f"🚀 Señal fuerte de compra detectada: {', '.join(strong_conditions)}.\nComprado {buy_qty:.5f} ETH a ${current_price:.2f}.")
                                 last_status_log_time = time.time()
-                    elif not sniper_signal:
-                        # Condiciones insuficientes: solo enviar si no se está operando y han pasado 2h desde último log y ya se hizo compra inicial forzada
-                        if time.time() - last_status_log_time > 7200 and memory.get("initial_forced_buy_done") == True:
-                            send_message("🤖 Sin acción: condiciones no óptimas para operar. Evaluando...")
-                            last_status_log_time = time.time()
+                                # GUARDIAN: registrar precio de entrada
+                                last_entry_price = current_price
+                                current_position = "ETH"
+
+                    # === Alerta visual para Dashboard ===
+                    if sniper_signal and strong_conditions:
+                        alert = {
+                            "time": int(time.time() * 1000),
+                            "message": f"⚠️ Señal fuerte detectada: {', '.join(strong_conditions)} a ${current_price:.2f}"
+                        }
+                        try:
+                            if os.path.exists("eth_alerts.json"):
+                                with open("eth_alerts.json", "r") as f:
+                                    alert_data = json.load(f)
+                            else:
+                                alert_data = []
+                            alert_data.append(alert)
+                            alert_data = alert_data[-20:]
+                            with open("eth_alerts.json", "w") as f:
+                                json.dump(alert_data, f, indent=2)
+                        except Exception as e:
+                            print(f"[ERROR] No se pudo guardar alerta visual: {str(e)}")
                 # --- Guardian Salida (venta) ---
                 trades = memory.get("trades", [])
                 entry_price = None
@@ -641,6 +709,9 @@ def main():
                                 })
                                 save_memory(memory)
                                 report("BUY", current_price)
+                                # GUARDIAN: registrar precio de entrada
+                                last_entry_price = current_price
+                                current_position = "ETH"
 
                             if res["error"]:
                                 log_entries.append(f"⚠️ Error en compra inicial forzada: {res['error']}")
@@ -655,14 +726,28 @@ def main():
 
                 # Enviar logs de errores o eventos críticos de Kraken inmediatamente
                 if log_entries:
+                    # Si hay logs importantes, agregar info de memoria extra al mensaje para dashboard
+                    # Si se está generando un mensaje JSON para dashboard, aquí ejemplo:
+                    # dashboard_data = {..., "last_volume": eth_memory['last_volume'], "last_timestamp": eth_memory['last_timestamp']}
                     send_compact_log(log_entries)
                     log_entries.clear()
             except Exception as e:
-                import traceback
                 log_entries.append(f"⚠️ Luciano, algo salió mal: {str(e)}\n{traceback.format_exc()}")
                 if log_entries:
                     send_compact_log(log_entries)
                     log_entries.clear()
+
+
+
+# === Bloque para cargar último estado de memoria ETH y preparar datos para dashboard ===
+import json
+
+# Cargar último estado de memoria ETH
+try:
+    # Placeholder logic if needed, currently does nothing.
+    pass
+except Exception as e:
+    print(f"❌ Error durante ejecución final: {str(e)}")
 
 
 if __name__ == "__main__":
