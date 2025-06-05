@@ -41,7 +41,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import random
 
-# Load environment
+ # Load environment
 load_dotenv()
 API_KEY = "f+0PG7YffmN2G/a3ebGkKtBwyaCHUcH1WXTHZNBmVN1d+D4nZbaTobcI"
 PRIVATE_KEY = "p/3THTJpykhJpVXa2EA3ofg6802Inu9ry/secnKTunfVzvKtINkcGKaznetgf40hpM6+UIL3XJnw8/mDJrYZeA=="
@@ -53,6 +53,8 @@ LOG_FILE = os.getenv("LOG_FILE", "kraken_log.txt")
 MEMORY_FILE = "eth_memory.json"
 MODE = os.getenv("MODE", "REAL")
 TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.01"))
+
+execution_count = 0
 
 _last_telegram_msg = {"msg": None}
 def send_message(msg):
@@ -133,7 +135,10 @@ def handle_command():
                         summary += f"- {t['type']} {t['quantity']} ETH a ${t['price']:.2f} ({t_time.strftime('%H:%M')})\n"
                 if not trades or today not in [datetime.fromisoformat(t["time"]).date() for t in trades]:
                     summary += "Sin operaciones hoy.\n"
-                send_message("✅ Bot funcionando correctamente. Monitoreando mercado ETH.\n" + summary)
+                message = "✅ Bot funcionando correctamente. Monitoreando mercado ETH.\n" + summary
+                exec_count = mem.get("execution_count", 0)
+                message += f"\n🔁 Ejecuciones del bot: {exec_count}"
+                send_message(message)
 
             elif "/balance" in text.lower():
                 usdt, eth = get_balance()
@@ -297,6 +302,7 @@ def save_memory(data):
 
 def place_order(side, quantity, log_entries=None, validate=False):
     # Ejecutar orden real
+    global operations_executed
     nonce = str(int(1000 * time.time()))
     data = {
         "pair": "ETHUSDT",
@@ -318,6 +324,9 @@ def place_order(side, quantity, log_entries=None, validate=False):
         log_entries.append(order_msg)
     else:
         send_message(order_msg)
+    # Incrementar operaciones ejecutadas solo si la orden fue exitosa (sin error)
+    if "error" not in response or not response["error"]:
+        operations_executed += 1
     return response
 
 def decision(price, usdt, eth, memory):
@@ -366,11 +375,9 @@ def report(trade_type, price):
     send_message(f"{emoji} {msg}")
 
 def main():
-    send_message("🟢 Test directo: el bot Kraken está vivo y conectado.")
+    global execution_count
     memory = load_memory()
     memory.setdefault("last_balance_report", None)
-    send_message("✅ ETH SUPREME BOT relanzado correctamente. Esperando balance y ejecutando chequeos iniciales...")
-    send_message("📡 Sniper activo. Analizando condiciones...\nPróximo log automático en 2h. Te avisaré si detecto señales reales. 🚀")
 
     # Verificación de claves esenciales
     if not API_KEY or not PRIVATE_KEY or not BASE_URL:
@@ -380,7 +387,22 @@ def main():
     if not TELEGRAM_TOKEN or not CHAT_ID:
         return
     else:
-        send_message("ℹ️ Bot revisó las claves de entorno. Ver consola de Render para más info.")
+        # Agrupar mensajes de inicio
+        usdt_balance, eth_balance = get_balance()
+        initial_balance = usdt_balance
+        current_balance = usdt_balance
+        TRADING_MODE = MODE
+        startup_message = f"""
+🚀 ETH Supreme Kraken Bot Iniciado
+────────────────────────────────
+✅ Modo: {TRADING_MODE}
+💼 Balance inicial: {initial_balance} USDT
+⏰ Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+📊 Analizando mercado...
+"""
+        send_telegram_message = send_message  # Para compatibilidad con el enunciado
+        send_telegram_message(startup_message)
+        # Inicialización de claves de memoria
         if "last_action" not in memory:
             memory["last_action"] = None
             save_memory(memory)
@@ -389,7 +411,6 @@ def main():
         save_memory(memory)
         if not memory.get("last_action"):
             if not memory.get("last_connection_reported") or (datetime.now() - datetime.fromisoformat(memory.get("last_connection_reported", "1970-01-01T00:00:00"))).total_seconds() > 3600:
-                send_message("🧠 ETH SUPREME BOT conectado. Luciano, estoy atento al mercado para ti.")
                 memory["last_connection_reported"] = datetime.now().isoformat()
                 save_memory(memory)
         last_notified_action = memory["last_action"]
@@ -447,6 +468,8 @@ def main():
         last_log_time = time.time()
         last_status_log_time = time.time()
         last_full_message = None
+        # Para profit/loss tracking
+        initial_balance = usdt_balance
 
         # --- Sniper y Guardian logic helpers ---
         def detect_whale_spike():
@@ -480,6 +503,16 @@ def main():
                 handle_command()
                 usdt_balance, eth_balance = get_balance(log_entries=log_entries)
                 current_price = get_price()
+                current_balance = usdt_balance  # para profit/loss
+
+                # ✅ Actualizar volumen y timestamp si cambiaron
+                if volume_tick != eth_memory.get("last_volume", 0):
+                    eth_memory["last_volume"] = volume_tick
+                    eth_memory["last_timestamp"] = datetime.now().isoformat()
+                    with open("eth_memory.json", "w") as f:
+                        json.dump(eth_memory, f, indent=2)
+                    import shutil
+                    shutil.copyfile("eth_memory.json", "public/eth_memory.json")
 
                 # Guardian exit check BEFORE evaluating new signals/decisions
                 if current_position == "ETH" and last_entry_price is not None:
@@ -518,10 +551,45 @@ def main():
                     accion = senal.get("signal")
                     if accion == "buy":
                         print("⚡ Señal externa detectada: COMPRAR")
-                        # ejecutar_compra_eth()
+                        if usdt_balance >= min_trade_usdt:
+                            trade_qty = round(usdt_balance / current_price, 6)
+                            res = place_order("BUY", trade_qty, log_entries=log_entries)
+                            if "error" not in res or not res["error"]:
+                                execution_count += 1
+                                memory.setdefault("trades", []).append({
+                                    "type": "BUY",
+                                    "price": current_price,
+                                    "quantity": trade_qty,
+                                    "time": datetime.now().isoformat()
+                                })
+                                memory["last_action"] = "BUY"
+                                memory["last_action_reason"] = "Señal externa"
+                                save_memory(memory)
+                                report("BUY", current_price)
+                                last_entry_price = current_price
+                                current_position = "ETH"
+                            else:
+                                log_entries.append(f"⚠️ Error en compra por señal externa: {res['error']}")
                     elif accion == "sell":
                         print("⚡ Señal externa detectada: VENDER")
-                        # ejecutar_venta_eth()
+                        if eth_balance >= min_eth_amount:
+                            res = place_order("SELL", eth_balance, log_entries=log_entries)
+                            if "error" not in res or not res["error"]:
+                                execution_count += 1
+                                memory.setdefault("trades", []).append({
+                                    "type": "SELL",
+                                    "price": current_price,
+                                    "quantity": eth_balance,
+                                    "time": datetime.now().isoformat()
+                                })
+                                memory["last_action"] = "SELL"
+                                memory["last_action_reason"] = "Señal externa"
+                                save_memory(memory)
+                                report("SELL", current_price)
+                                current_position = "USDT"
+                                last_entry_price = None
+                            else:
+                                log_entries.append(f"⚠️ Error en venta por señal externa: {res['error']}")
 
                 # --- Safeguard for eth_memory keys before logging ---
                 if "last_volume" not in eth_memory:
@@ -599,6 +667,8 @@ def main():
                                 send_compact_log(log_entries)
                                 log_entries.clear()
                             else:
+                                global execution_count
+                                execution_count += 1
                                 memory.setdefault("trades", []).append({
                                     "type": "BUY",
                                     "price": current_price,
@@ -607,6 +677,7 @@ def main():
                                 })
                                 memory["last_action"] = "BUY"
                                 memory["last_action_reason"] = f"Sniper entry: {' y '.join(strong_conditions)}"
+                                memory["last_sniper_trigger"] = datetime.now().isoformat()
                                 save_memory(memory)
                                 report("BUY", current_price)
                                 # Log conciso tras operación
@@ -652,6 +723,7 @@ def main():
                         if "error" in res and res["error"]:
                             log_entries.append(f"❌ Error al vender por caída: {res['error']}")
                         else:
+                            execution_count += 1
                             memory.setdefault("trades", []).append({
                                 "type": "SELL",
                                 "price": current_price,
@@ -662,6 +734,17 @@ def main():
                             save_memory(memory)
                             report("SELL", current_price)
                             send_message(f"💥 Protección activada. Vendido {sell_qty:.5f} ETH a ${current_price:.2f} por caída de mercado.")
+                            # Log de vuelta a USDT y operaciones ejecutadas
+                            current_balance, _ = get_balance()
+                            profit_or_loss = round(float(current_balance) - float(initial_balance), 2)
+                            summary_message = f"""
+🔁 Vuelta a USDT completada
+💰 Profit/Loss parcial: {profit_or_loss} USDT
+📈 Total de ejecuciones: {execution_count}
+"""
+                            send_telegram_message(summary_message)
+                        current_position = "USDT"
+                        last_entry_price = None
                 guardian_signal = False
                 if entry_price is not None and eth_balance >= min_eth_amount:
                     if should_exit_trade(entry_price, current_price):
@@ -674,6 +757,7 @@ def main():
                         send_compact_log(log_entries)
                         log_entries.clear()
                     else:
+                        execution_count += 1
                         memory.setdefault("trades", []).append({
                             "type": "SELL",
                             "price": current_price,
@@ -684,7 +768,43 @@ def main():
                         save_memory(memory)
                         report("SELL", current_price)
                         send_message(f"🚨 Señal fuerte de venta: condiciones Guardian alcanzadas.\nVendido {sell_qty:.5f} ETH a ${current_price:.2f}.")
+                        # Log de vuelta a USDT y operaciones ejecutadas
+                        current_balance, _ = get_balance()
+                        profit_or_loss = round(float(current_balance) - float(initial_balance), 2)
+                        summary_message = f"""
+🔁 Vuelta a USDT completada
+💰 Profit/Loss parcial: {profit_or_loss} USDT
+📈 Total de ejecuciones: {execution_count}
+"""
+                        send_telegram_message(summary_message)
                         last_status_log_time = time.time()
+
+                # --- Venta por inactividad total (failsafe) ---
+                if should_force_exit_if_idle(memory) and eth_balance >= min_eth_amount:
+                    sell_qty = eth_balance
+                    res = place_order("SELL", sell_qty, log_entries=log_entries)
+                    if "error" not in res or not res["error"]:
+                        execution_count += 1
+                        memory.setdefault("trades", []).append({
+                            "type": "SELL",
+                            "price": current_price,
+                            "quantity": sell_qty,
+                            "time": datetime.now().isoformat()
+                        })
+                        memory["last_action"] = "SELL"
+                        memory["last_action_reason"] = "Failsafe: 8h sin señales"
+                        save_memory(memory)
+                        report("SELL", current_price)
+                        send_message(f"⚠️ Failsafe: sin señales por más de 8h. Vendido {sell_qty:.5f} ETH a ${current_price:.2f}")
+                        # Log de vuelta a USDT y operaciones ejecutadas
+                        current_balance, _ = get_balance()
+                        profit_or_loss = round(float(current_balance) - float(initial_balance), 2)
+                        summary_message = f"""
+🔁 Vuelta a USDT completada
+💰 Profit/Loss parcial: {profit_or_loss} USDT
+📈 Total de ejecuciones: {execution_count}
+"""
+                        send_telegram_message(summary_message)
 
                 # Fuerza una compra inicial apenas inicie el bot (solo una vez)
                 if not memory.get("initial_forced_buy_done", False):
@@ -704,6 +824,7 @@ def main():
 
                             # Nuevo bloque: registrar la compra inicial solo si fue exitosa
                             if "error" not in res or not res["error"]:
+                                execution_count += 1
                                 memory["last_action"] = "BUY"
                                 memory["last_action_reason"] = "Compra inicial forzada"
                                 memory.setdefault("trades", []).append({
@@ -736,11 +857,27 @@ def main():
                     # dashboard_data = {..., "last_volume": eth_memory['last_volume'], "last_timestamp": eth_memory['last_timestamp']}
                     send_compact_log(log_entries)
                     log_entries.clear()
+
+                # Guardar memoria al final de cada ciclo de loop principal
+                save_memory(memory)
             except Exception as e:
                 log_entries.append(f"⚠️ Luciano, algo salió mal: {str(e)}\n{traceback.format_exc()}")
+                # ✅ Guardar última acción periódica aunque no se opere
+                memory["last_checkup"] = datetime.now().isoformat()
+                save_memory(memory)
                 if log_entries:
                     send_compact_log(log_entries)
                     log_entries.clear()
+
+
+# --- Venta por inactividad total (failsafe) ---
+# Función para decidir si hay que forzar salida por inactividad
+def should_force_exit_if_idle(memory):
+    if memory.get("last_action") == "BUY" and memory.get("last_sniper_trigger"):
+        last_sniper = datetime.fromisoformat(memory["last_sniper_trigger"])
+        if (datetime.now() - last_sniper).total_seconds() > 8 * 3600:  # 8 horas sin señales
+            return True
+    return False
 
 
 
@@ -756,11 +893,5 @@ except Exception as e:
 
 
 if __name__ == "__main__":
-    send_message("🔍 Iniciando test de claves Kraken...")
-    log_entries = []
-    balance_test = kraken_request("Balance", {}, log_entries=log_entries)
-    log_entries.append(f"📊 Resultado balance test: {json.dumps(balance_test)}")
-    if log_entries:
-        send_compact_log(log_entries)
-        log_entries.clear()
+    # No realizar test de claves ni balance al inicio, solo iniciar el bot directamente para análisis.
     main()
