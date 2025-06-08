@@ -1,15 +1,19 @@
 import time
+import os
+import requests
 import urllib.parse
 import hashlib
 import hmac
 import base64
 from dotenv import load_dotenv
-import requests
-import os
 
+# Load environment variables
 load_dotenv()
+API_KEY = os.getenv("KRAKEN_API_KEY")
+PRIVATE_KEY = os.getenv("KRAKEN_SECRET_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.01"))
 
 def send_telegram_message(message):
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
@@ -20,13 +24,6 @@ def send_telegram_message(message):
         except Exception as e:
             print(f"Telegram error: {e}")
 
-def get_price():
-    res = requests.get("https://api.kraken.com/0/public/Ticker?pair=ETHUSDT").json()
-    result = res.get("result", {})
-    pair_key = next(iter(result), None)
-    if pair_key:
-        return float(result[pair_key]["c"][0])
-    raise ValueError("ETHUSDT pair not found in Kraken response")
 def kraken_request(endpoint, data):
     url_path = f"/0/private/{endpoint}"
     url = f"https://api.kraken.com{url_path}"
@@ -34,18 +31,23 @@ def kraken_request(endpoint, data):
     data["nonce"] = nonce
     post_data = urllib.parse.urlencode(data)
     encoded = (nonce + post_data).encode()
-    signature = hmac.new(
-        base64.b64decode(os.getenv("KRAKEN_SECRET_KEY")),
-        url_path.encode() + hashlib.sha256(encoded).digest(),
-        hashlib.sha512
-    )
+    message = url_path.encode() + hashlib.sha256(encoded).digest()
+    signature = hmac.new(base64.b64decode(PRIVATE_KEY), message, hashlib.sha512)
     sig_digest = base64.b64encode(signature.digest())
     headers = {
-        "API-Key": os.getenv("KRAKEN_API_KEY"),
+        "API-Key": API_KEY,
         "API-Sign": sig_digest.decode()
     }
     res = requests.post(url, headers=headers, data=data)
     return res.json()
+
+def get_price():
+    res = requests.get("https://api.kraken.com/0/public/Ticker?pair=ETHUSDT").json()
+    result = res.get("result", {})
+    pair_key = next(iter(result), None)
+    if pair_key:
+        return float(result[pair_key]["c"][0])
+    raise ValueError("ETHUSDT pair not found in Kraken response")
 
 def get_balance():
     res = kraken_request("Balance", {})
@@ -67,7 +69,6 @@ def place_order(side, qty):
 def main():
     last_price = get_price()
     entry_price = None
-    TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.01"))
 
     while True:
         time.sleep(60)
